@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clipper</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Clipper</h1>
+    <span id="encoder-note" class="muted"></span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. Upload a video</h2>
+      <input type="file" id="file" accept=".mp4,.mov,.mkv,video/*">
+      <button id="upload-btn">Upload</button>
+      <progress id="upload-progress" class="hidden" max="1" value="0"></progress>
+      <p id="upload-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <h2>Projects</h2>
+      <div id="projects"><p class="muted">No projects yet.</p></div>
+    </section>
+
+    <section id="project-panel" class="card hidden">
+      <div class="row-between">
+        <div>
+          <h2 id="project-title"></h2>
+          <p id="project-meta" class="muted"></p>
+        </div>
+        <button id="delete-project" class="danger">Delete project</button>
+      </div>
+
+      <h3>2. Clip settings (manual)</h3>
+      <div class="form-grid">
+        <label>Clip length
+          <select id="duration">
+            <option value="15">15 seconds</option>
+            <option value="30" selected>30 seconds</option>
+            <option value="45">45 seconds</option>
+            <option value="60">60 seconds</option>
+            <option value="90">90 seconds</option>
+            <option value="custom">Custom...</option>
+          </select>
+        </label>
+        <label id="custom-wrap" class="hidden">Custom seconds
+          <input type="number" id="custom-duration" min="1" max="600" value="20">
+        </label>
+        <label>Start time (seconds or mm:ss)
+          <input type="text" id="start" value="0">
+        </label>
+        <label>Number of clips (back to back)
+          <input type="number" id="count" min="1" max="20" value="1">
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="burn-captions">
+        Burn captions into the clips (generate captions in section 5 first)
+      </label>
+      <div class="actions">
+        <button id="make-clips">Create clips</button>
+      </div>
+      <p id="clip-msg" class="msg"></p>
+
+      <h3>3. Clips</h3>
+      <div id="clips"><p class="muted">No clips yet.</p></div>
+
+      <h3>4. Transcript</h3>
+      <div class="actions">
+        <button id="transcribe-btn">Transcribe</button>
+        <button id="transcribe-cancel" class="secondary hidden">Cancel</button>
+      </div>
+      <progress id="transcript-progress" class="hidden" max="1" value="0"></progress>
+      <p id="transcript-msg" class="msg"></p>
+      <div id="transcript-list"></div>
+
+      <h3>5. Captions</h3>
+      <div class="actions">
+        <label>Words per caption
+          <input type="number" id="cap-max-words" min="1" max="12" value="4">
+        </label>
+        <button id="cap-generate">Generate captions</button>
+      </div>
+      <p id="cap-msg" class="msg"></p>
+
+      <div id="cap-editor" class="hidden">
+        <h4>Style</h4>
+        <div class="form-grid">
+          <label>Preset
+            <select id="cap-preset">
+              <option value="custom">Custom</option>
+              <option value="classic">Classic</option>
+              <option value="pop">Pop (uppercase, yellow word)</option>
+              <option value="clean">Clean</option>
+            </select>
+          </label>
+          <label>Font <select id="cap-font"></select></label>
+          <label>Size (% of video height)
+            <input type="number" id="cap-size" min="2" max="15" step="0.5">
+          </label>
+          <label>Text colour <input type="color" id="cap-text-color"></label>
+          <label>Highlight colour <input type="color" id="cap-hl-color"></label>
+          <label>Outline colour <input type="color" id="cap-outline-color"></label>
+          <label>Outline thickness (%)
+            <input type="number" id="cap-outline" min="0" max="2" step="0.1">
+          </label>
+          <label>Position
+            <select id="cap-position">
+              <option value="bottom">Bottom</option>
+              <option value="middle">Middle</option>
+              <option value="top">Top</option>
+            </select>
+          </label>
+          <label>Distance from edge (%)
+            <input type="number" id="cap-margin" min="0" max="40" step="1">
+          </label>
+          <label>Max characters per line
+            <input type="number" id="cap-line-chars" min="8" max="60" step="1">
+          </label>
+          <label class="check"><input type="checkbox" id="cap-bold"> Bold</label>
+          <label class="check"><input type="checkbox" id="cap-upper"> UPPERCASE</label>
+          <label class="check"><input type="checkbox" id="cap-hl-word"> Highlight spoken word</label>
+        </div>
+        <div class="actions">
+          <button id="cap-save-style">Save style</button>
+        </div>
+
+        <h4>Preview</h4>
+        <div class="actions">
+          <label>At time (seconds)
+            <input type="number" id="cap-preview-t" min="0" step="0.1" value="0">
+          </label>
+          <button id="cap-preview-btn" class="secondary">Preview frame</button>
+        </div>
+        <p id="cap-preview-msg" class="msg"></p>
+        <img id="cap-preview-img" class="hidden" alt="Caption preview">
+
+        <h4>Caption text</h4>
+        <p class="muted">Edit the words or times. Clear a caption's text or press X to delete it. Press Save to keep your edits.</p>
+        <div id="cap-list"></div>
+        <div class="actions">
+          <button id="cap-save">Save caption edits</button>
+          <button id="cap-srt" class="secondary">Download .srt</button>
+        </div>
+      </div>
+
+      <h3>6. AI highlights</h3>
+      <p class="muted">A local AI model reads the transcript and suggests moments. The score is a rough estimate from a small model, not a prediction of views. Transcribe first (section 4).</p>
+      <div class="form-grid">
+        <label>Clip length
+          <select id="hl-duration">
+            <option value="15">15 seconds</option>
+            <option value="30" selected>30 seconds</option>
+            <option value="45">45 seconds</option>
+            <option value="60">60 seconds</option>
+            <option value="90">90 seconds</option>
+            <option value="custom">Custom...</option>
+            <option value="variable">Variable (AI chooses)</option>
+          </select>
+        </label>
+        <label id="hl-custom-wrap" class="hidden">Custom seconds
+          <input type="number" id="hl-custom" min="5" max="300" value="20">
+        </label>
+        <div id="hl-minmax" class="hidden form-grid">
+          <label>Minimum seconds <input type="number" id="hl-min" min="5" max="300" value="15"></label>
+          <label>Maximum seconds <input type="number" id="hl-max" min="10" max="600" value="90"></label>
+        </div>
+        <label>Number of highlights
+          <input type="number" id="hl-count" min="1" max="20" value="5">
+        </label>
+        <label>Special instructions (optional)
+          <input type="text" id="hl-focus" maxlength="500" placeholder="e.g. focus on funny reactions">
+        </label>
+      </div>
+      <div class="actions">
+        <label class="check"><input type="checkbox" id="hl-cat-funny" checked> Funny</label>
+        <label class="check"><input type="checkbox" id="hl-cat-surprising" checked> Surprising</label>
+        <label class="check"><input type="checkbox" id="hl-cat-emotional" checked> Emotional</label>
+        <label class="check"><input type="checkbox" id="hl-cat-exciting" checked> Exciting</label>
+        <label class="check"><input type="checkbox" id="hl-cat-informative" checked> Informative</label>
+      </div>
+      <div class="actions">
+        <button id="hl-run">Find highlights</button>
+        <button id="hl-cancel" class="secondary hidden">Cancel</button>
+        <button id="hl-all" class="secondary hidden">Create clips for all</button>
+      </div>
+      <progress id="hl-progress" class="hidden" max="1" value="0"></progress>
+      <p id="hl-msg" class="msg"></p>
+      <div id="hl-list"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script src="/static/transcript.js"></script>
+  <script src="/static/captions.js"></script>
+  <script src="/static/highlights.js"></script>
+</body>
+</html>
