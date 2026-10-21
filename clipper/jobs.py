@@ -5,16 +5,17 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import config
+from . import campaigns as camp
 from . import captions as cap
 from . import db
 from . import highlights as hl
 from . import layout as lay
-from . import llm, tracking, transcription, video
+from . import llm, steering, tracking, transcription, video
 
 log = logging.getLogger("clipper.jobs")
 
-# One heavy job at a time (clip renders, transcriptions and AI analysis share this queue):
-# keeps the GPU/CPU from being overloaded on a 6GB laptop GPU.
+# One heavy job at a time (clip renders, transcriptions, AI analysis and campaign reading share
+# this queue): keeps the GPU/CPU from being overloaded on a 6GB laptop GPU.
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="worker")
 _cancel_events = {}
 _transcribe_cancel = {}
@@ -254,6 +255,13 @@ def _run_analysis(project_id, cancel):
             raise video.VideoError("Transcribe this video first.")
 
         settings = json.loads(row["params_json"])
+        if project.get("campaign_id"):   # campaign rules win over the settings on screen
+            crow = db.query_one("SELECT name, rules_json FROM campaigns WHERE id=?",
+                                (project["campaign_id"],))
+            if crow:
+                rules = camp.normalise_rules(json.loads(crow["rules_json"]))
+                settings = steering.apply_to_settings(settings, rules, crow["name"])
+
         db.execute("UPDATE analyses SET status='processing', progress=0, error=NULL, message=? "
                    "WHERE project_id=?", ("Reading the transcript", project_id))
         sentences = hl.build_sentences(json.loads(t["result_json"])["segments"])
@@ -278,6 +286,8 @@ def _run_analysis(project_id, cancel):
             msg += f" {result['failed_chunks']} part(s) could not be analysed."
         if not found:
             msg = "The AI didn't find anything worth clipping with these settings."
+        if settings.get("campaign_note"):
+            msg += " " + settings["campaign_note"]
         db.execute("UPDATE analyses SET status='done', progress=1, message=? WHERE project_id=?",
                    (msg, project_id))
         log.info("Analysis for project %s: %s", project_id, msg)
@@ -293,3 +303,40 @@ def _run_analysis(project_id, cancel):
         llm.unload()  # free the GPU for transcription and rendering
         with _lock:
             _analysis_cancel.pop(project_id, None)
+
+
+# ---------- campaign document reading ----------
+
+def submit_extraction(campaign_id):
+    _executor.submit(_run_extraction, campaign_id)
+
+
+def _run_extraction(campaign_id):
+    try:
+        row = db.query_one("SELECT * FROM campaigns WHERE id=?", (campaign_id,))
+        if not row:
+            return
+
+        def on_progress(frac, message):
+            db.execute("UPDATE campaigns SET message=? WHERE id=?", (message, campaign_id))
+
+        rules, info = camp.extract_rules(row["source_text"], on_progress)
+        msg = "Rules extracted. Please review them before using this campaign."
+        if info["failed_parts"]:
+            msg += f" {info['failed_parts']} part(s) of the document could not be read."
+        if info["truncated"]:
+            msg += " The document was long, so only the first part was read."
+        db.execute("UPDATE campaigns SET rules_json=?, status='ready', message=?, error=NULL, "
+                   "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                   (json.dumps(rules), msg, campaign_id))
+        log.info("Campaign %s rules extracted", campaign_id)
+    except llm.LLMError as e:
+        db.execute("UPDATE campaigns SET status='failed', error=? WHERE id=?",
+                   (f"{e} You can still fill in the rules by hand.", campaign_id))
+    except Exception:
+        log.exception("Campaign %s extraction failed", campaign_id)
+        db.execute("UPDATE campaigns SET status='failed', error=? WHERE id=?",
+                   ("Unexpected error. See data/clipper.log. You can still fill in the rules by hand.",
+                    campaign_id))
+    finally:
+        llm.unload()

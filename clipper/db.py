@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS projects (
     duration REAL, width INTEGER, height INTEGER, size_bytes INTEGER,
     layout TEXT NOT NULL DEFAULT 'original',
     crop_pos REAL NOT NULL DEFAULT 0.5,
+    campaign_id INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS clips (
@@ -63,6 +64,17 @@ CREATE TABLE IF NOT EXISTS highlights (
     reason TEXT, note TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS campaigns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    source_name TEXT,
+    source_text TEXT NOT NULL,
+    rules_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'extracting',
+    message TEXT, error TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 # Columns added in later stages: upgraded in place so existing data is kept.
@@ -70,6 +82,7 @@ UPGRADES = {
     "projects": {
         "layout": "TEXT NOT NULL DEFAULT 'original'",
         "crop_pos": "REAL NOT NULL DEFAULT 0.5",
+        "campaign_id": "INTEGER",
     },
     "clips": {
         "burn_captions": "INTEGER NOT NULL DEFAULT 0",
@@ -117,6 +130,11 @@ def init_db():
                 f"UPDATE {table} SET status='failed', error='Interrupted by app restart' "
                 "WHERE status IN ('queued', 'processing')"
             )
+        conn.execute(
+            "UPDATE campaigns SET status='failed', error='Interrupted by app restart. "
+            "You can read the document again or fill in the rules by hand.' "
+            "WHERE status = 'extracting'"
+        )
 
 
 def query(sql, params=()):

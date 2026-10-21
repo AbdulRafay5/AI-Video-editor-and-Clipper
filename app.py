@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, send_file
 
 import config
+from clipper import campaigns_api
 from clipper import captions as cap
 from clipper import db
 from clipper import highlights as hl
@@ -25,6 +26,7 @@ log = logging.getLogger("clipper.app")
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_BYTES
 db.init_db()
+campaigns_api.register(app)
 
 
 def err(message, code=400):

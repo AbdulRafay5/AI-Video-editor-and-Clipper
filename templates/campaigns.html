@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Campaigns - Clipper</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    textarea { padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--bg);
+               color:var(--text); font:inherit; width:100%; resize:vertical; }
+    .nav { display:flex; gap:14px; margin-left:auto; }
+    .nav a { color:var(--accent); text-decoration:none; }
+    pre { white-space:pre-wrap; max-height:260px; overflow:auto; font-size:.85rem; }
+    .field { margin-bottom:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Clipper</h1>
+    <nav class="nav"><a href="/">Projects</a><a href="/campaigns">Campaigns</a></nav>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>New campaign</h2>
+      <p class="muted">Upload the campaign brief (PDF, Word .docx or text) or paste its text, for example from a Google Doc. The local AI reads it and drafts the rules, and you review them before anything is used. Scanned PDFs aren't supported yet.</p>
+      <div class="form-grid">
+        <label>Name (optional) <input type="text" id="new-name" maxlength="100"></label>
+        <label>Brief file <input type="file" id="new-file" accept=".pdf,.docx,.txt,.md"></label>
+      </div>
+      <label class="field">Or paste the text (ignored if you choose a file)
+        <textarea id="new-text" rows="6"></textarea>
+      </label>
+      <button id="new-btn">Create campaign</button>
+      <p id="new-msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <h2>Campaigns</h2>
+      <div id="camp-list"><p class="muted">No campaigns yet.</p></div>
+    </section>
+
+    <section id="editor" class="card hidden">
+      <div class="row-between">
+        <h2>Review the rules</h2>
+        <button id="delete-btn" class="danger">Delete campaign</button>
+      </div>
+      <p id="editor-msg" class="msg"></p>
+
+      <div class="form-grid">
+        <label>Name <input type="text" id="f-name" maxlength="100"></label>
+      </div>
+      <label class="field">Summary
+        <textarea id="f-summary" rows="3"></textarea>
+      </label>
+
+      <h3>Clip length (seconds, 0 = not specified)</h3>
+      <div class="form-grid">
+        <label>Minimum <input type="number" id="f-min" min="0" step="1"></label>
+        <label>Maximum <input type="number" id="f-max" min="0" step="1"></label>
+        <label>Ideal <input type="number" id="f-pref" min="0" step="1"></label>
+      </div>
+
+      <h3>Requirements (one per line)</h3>
+      <label class="field">Platforms
+        <textarea id="f-platforms" rows="2"></textarea>
+      </label>
+      <label class="field">Required hashtags and mentions
+        <textarea id="f-required_hashtags" rows="2"></textarea>
+      </label>
+      <label class="field">Required caption or description text
+        <textarea id="f-required_caption_text" rows="2"></textarea>
+      </label>
+      <label class="field">Must be said aloud in the clip
+        <textarea id="f-required_spoken_phrases" rows="2"></textarea>
+      </label>
+      <label class="field">Must be visible in the clip (people, objects, on-screen elements)
+        <textarea id="f-required_visuals" rows="2"></textarea>
+      </label>
+      <label class="field">Must NOT contain
+        <textarea id="f-banned_content" rows="2"></textarea>
+      </label>
+      <label class="field">Other rules (checked by you, not by the app)
+        <textarea id="f-other_rules" rows="3"></textarea>
+      </label>
+
+      <div class="actions">
+        <button id="save-btn">Save rules</button>
+        <button id="reextract-btn" class="secondary">Read the document again with AI</button>
+      </div>
+
+      <details class="field">
+        <summary id="source-summary">Source text</summary>
+        <pre id="source-text"></pre>
+      </details>
+    </section>
+  </main>
+
+  <script src="/static/campaigns.js"></script>
+</body>
+</html>

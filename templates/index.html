@@ -5,11 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clipper</title>
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .nav { display:flex; gap:14px; margin-left:auto; }
+    .nav a { color:var(--accent); text-decoration:none; }
+  </style>
 </head>
 <body>
   <header>
     <h1>Clipper</h1>
     <span id="encoder-note" class="muted"></span>
+    <nav class="nav"><a href="/">Projects</a><a href="/campaigns">Campaigns</a></nav>
   </header>
 
   <main>
@@ -34,6 +39,15 @@
         </div>
         <button id="delete-project" class="danger">Delete project</button>
       </div>
+
+      <h3>Campaign</h3>
+      <p class="muted">A campaign's length limits and requirements steer the AI highlights (section 6). Create campaigns on the <a href="/campaigns">Campaigns page</a>.</p>
+      <div class="form-grid">
+        <label>Campaign for this project
+          <select id="pc-select"></select>
+        </label>
+      </div>
+      <p id="pc-msg" class="msg"></p>
 
       <h3>Output format</h3>
       <p class="muted">Applies to clips you create after changing it. Vertical clips are 1080x1920 for TikTok, Reels and Shorts. With several people on screen, "blurred background" keeps everyone visible; "auto-follow" pans to keep faces in frame.</p>
@@ -175,7 +189,7 @@
       </div>
 
       <h3>6. AI highlights</h3>
-      <p class="muted">A local AI model reads the transcript and suggests moments. The score is a rough estimate from a small model, not a prediction of views. Transcribe first (section 4).</p>
+      <p class="muted">A local AI model reads the transcript and suggests moments. The score is a rough estimate from a small model, not a prediction of views. Transcribe first (section 4). If this project has a campaign, its length limits override the length setting below.</p>
       <div class="form-grid">
         <label>Clip length
           <select id="hl-duration">
@@ -225,5 +239,6 @@
   <script src="/static/captions.js"></script>
   <script src="/static/highlights.js"></script>
   <script src="/static/format.js"></script>
+  <script src="/static/projcampaign.js"></script>
 </body>
 </html>
