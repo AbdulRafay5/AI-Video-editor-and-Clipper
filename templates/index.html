@@ -35,6 +35,32 @@
         <button id="delete-project" class="danger">Delete project</button>
       </div>
 
+      <h3>Output format</h3>
+      <p class="muted">Applies to clips you create after changing it. Vertical clips are 1080x1920 for TikTok, Reels and Shorts. With several people on screen, "blurred background" keeps everyone visible; "auto-follow" pans to keep faces in frame.</p>
+      <div class="form-grid">
+        <label>Layout
+          <select id="fmt-layout">
+            <option value="original">Original shape (no change)</option>
+            <option value="blur">Vertical - blurred background</option>
+            <option value="crop">Vertical - crop to fill</option>
+            <option value="follow">Vertical - auto-follow faces (beta)</option>
+            <option value="fit">Vertical - fit with black bars</option>
+          </select>
+        </label>
+        <label id="fmt-pos-wrap" class="hidden">Crop position (left to right)
+          <input type="range" id="fmt-pos" min="0" max="100" value="50">
+        </label>
+      </div>
+      <div class="actions">
+        <label>Preview at (seconds)
+          <input type="number" id="fmt-t" min="0" step="0.5" value="5">
+        </label>
+        <label class="check"><input type="checkbox" id="fmt-caps" checked> Show captions</label>
+        <button id="fmt-preview-btn" class="secondary">Preview frame</button>
+      </div>
+      <p id="fmt-msg" class="msg"></p>
+      <img id="fmt-preview-img" class="hidden" alt="Layout preview">
+
       <h3>2. Clip settings (manual)</h3>
       <div class="form-grid">
         <label>Clip length
@@ -198,5 +224,6 @@
   <script src="/static/transcript.js"></script>
   <script src="/static/captions.js"></script>
   <script src="/static/highlights.js"></script>
+  <script src="/static/format.js"></script>
 </body>
 </html>

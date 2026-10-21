@@ -29,5 +29,9 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 LLM_MODEL = "qwen3:4b"            # must be a LOCAL model (no ":cloud" tags)
 LLM_CONTEXT = 6144                # tokens of memory per request; bigger = more VRAM
 
+# --- Vertical output (Stage 4) ---
+VERTICAL_WIDTH = 1080
+VERTICAL_HEIGHT = 1920
+
 for _d in (DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, AUDIO_DIR, MODEL_DIR, WORK_DIR):
     _d.mkdir(parents=True, exist_ok=True)

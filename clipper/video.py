@@ -92,24 +92,24 @@ def nvenc_available():
         return _nvenc_ok
 
 
-def cut_clip(src, start, end, out_path, encoder, on_progress, cancel_event, subtitle_dir=None):
+def cut_clip(src, start, end, out_path, encoder, on_progress, cancel_event, vf=None, work_dir=None):
     """Re-encode [start, end] of src into out_path. Re-encoding (not stream copy)
     gives frame-accurate cuts and a consistent H.264/AAC MP4.
 
-    If subtitle_dir is given, it must contain captions.ass and a fonts folder; the
-    captions are drawn onto the video. FFmpeg runs inside that folder so the filter
-    can use plain relative paths (no Windows path escaping)."""
+    vf is an optional FFmpeg video filter (vertical layout and/or captions).
+    If captions are used, work_dir holds captions.ass and a fonts folder, and FFmpeg
+    runs inside it so the filter can use plain relative paths (no Windows escaping)."""
     duration = end - start
     if encoder == "nvenc":
         venc = ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "21", "-b:v", "0"]
     else:
         venc = ["-c:v", "libx264", "-preset", "medium", "-crf", "20"]
-    vf = ["-vf", "subtitles=captions.ass:fontsdir=fonts"] if subtitle_dir else []
+    vf_args = ["-vf", vf] if vf else []
 
     cmd = [_tool("ffmpeg"), "-hide_banner", "-y",
            "-ss", f"{start:.3f}", "-i", str(Path(src).resolve()), "-t", f"{duration:.3f}",
            "-map", "0:v:0", "-map", "0:a:0?",
-           *vf, *venc, "-pix_fmt", "yuv420p",
+           *vf_args, *venc, "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k",
            "-movflags", "+faststart",
            "-progress", "pipe:1", "-nostats",
@@ -118,7 +118,7 @@ def cut_clip(src, start, end, out_path, encoder, on_progress, cancel_event, subt
 
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace",
-                            cwd=str(subtitle_dir) if subtitle_dir else None,
+                            cwd=str(work_dir) if work_dir else None,
                             creationflags=NO_WINDOW)
     tail = deque(maxlen=15)
     try:
@@ -146,7 +146,7 @@ def cut_clip(src, start, end, out_path, encoder, on_progress, cancel_event, subt
         raise VideoError("FFmpeg failed: " + " | ".join(tail)[-400:])
 
 
-def verify_output(path, expected_duration):
+def verify_output(path, expected_duration, expected_size=None):
     """Confirm the file really exists and looks right before reporting success."""
     p = Path(path)
     if not p.exists() or p.stat().st_size < 1024:
@@ -157,4 +157,8 @@ def verify_output(path, expected_duration):
         raise VideoError(
             f"Output length {info['duration']:.1f}s doesn't match the expected "
             f"{expected_duration:.1f}s.")
+    if expected_size and (info["width"], info["height"]) != tuple(expected_size):
+        raise VideoError(
+            f"Output size {info['width']}x{info['height']} doesn't match the expected "
+            f"{expected_size[0]}x{expected_size[1]}.")
     return info

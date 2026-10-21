@@ -11,7 +11,9 @@ import config
 from clipper import captions as cap
 from clipper import db
 from clipper import highlights as hl
-from clipper import jobs, llm, video
+from clipper import jobs
+from clipper import layout as lay
+from clipper import llm, video
 
 logging.basicConfig(
     level=logging.INFO,
@@ -116,6 +118,57 @@ def delete_project(pid):
     return jsonify(ok=True)
 
 
+# ---------- output format (vertical layouts) ----------
+
+@app.get("/api/projects/<int:pid>/layout")
+def get_layout(pid):
+    p = db.query_one("SELECT * FROM projects WHERE id=?", (pid,))
+    if not p:
+        return err("Project not found.", 404)
+    layout, pos = lay.normalise(p["layout"], p["crop_pos"])
+    w, h = lay.out_size()
+    return jsonify(layout=layout, crop_pos=pos, out_width=w, out_height=h)
+
+
+@app.put("/api/projects/<int:pid>/layout")
+def save_layout(pid):
+    if not db.query_one("SELECT id FROM projects WHERE id=?", (pid,)):
+        return err("Project not found.", 404)
+    body = request.get_json(silent=True) or {}
+    layout, pos = lay.normalise(body.get("layout"), body.get("crop_pos"))
+    db.execute("UPDATE projects SET layout=?, crop_pos=? WHERE id=?", (layout, pos, pid))
+    return jsonify(layout=layout, crop_pos=pos)
+
+
+@app.post("/api/projects/<int:pid>/layout-preview")
+def layout_preview(pid):
+    p = db.query_one("SELECT * FROM projects WHERE id=?", (pid,))
+    if not p:
+        return err("Project not found.", 404)
+    body = request.get_json(silent=True) or {}
+    try:
+        t = float(body.get("t", 0))
+    except (TypeError, ValueError):
+        return err("Invalid preview time.")
+    t = min(max(t, 0.0), max(p["duration"] - 0.1, 0.0))
+    layout, pos = lay.normalise(body.get("layout"), body.get("crop_pos"))
+    caps = style = None
+    if body.get("captions"):
+        stored = load_captions(pid)
+        if stored:
+            caps, style = stored["captions"], stored["style"]
+    try:
+        png, count, note = lay.render_preview(p["source_path"], t, layout, pos, caps, style)
+    except video.VideoError as e:
+        log.warning("Layout preview failed: %s", e)
+        return err(str(e), 500)
+    resp = send_file(io.BytesIO(png), mimetype="image/png")
+    resp.headers["X-Caption-Events"] = str(count)
+    resp.headers["X-Layout-Note"] = (note or "").encode("ascii", "replace").decode("ascii")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ---------- clips ----------
 
 @app.get("/api/projects/<int:pid>/clips")
@@ -144,6 +197,7 @@ def create_clips(pid):
         return err(f"Number of clips must be 1-{config.MAX_CLIPS_PER_REQUEST}.")
     if burn and not db.query_one("SELECT project_id FROM captions WHERE project_id=?", (pid,)):
         return err("Generate captions for this project first (section 5), or untick the captions option.")
+    layout, pos = lay.normalise(p["layout"], p["crop_pos"])
 
     created = []
     for i in range(count):
@@ -152,8 +206,9 @@ def create_clips(pid):
         if e - s < 1:
             break
         cid = db.execute(
-            "INSERT INTO clips (project_id, name, start_time, end_time, burn_captions) VALUES (?,?,?,?,?)",
-            (pid, f"Clip {fmt_time(s)}-{fmt_time(e)}", s, e, 1 if burn else 0))
+            "INSERT INTO clips (project_id, name, start_time, end_time, burn_captions, layout, crop_pos) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (pid, f"Clip {fmt_time(s)}-{fmt_time(e)}", s, e, 1 if burn else 0, layout, pos))
         jobs.submit_clip(cid)
         created.append(cid)
     if not created:
@@ -434,13 +489,16 @@ def clip_from_highlight(hid):
     h = db.query_one("SELECT * FROM highlights WHERE id=?", (hid,))
     if not h:
         return err("Highlight not found.", 404)
+    p = db.query_one("SELECT * FROM projects WHERE id=?", (h["project_id"],))
     burn = bool((request.get_json(silent=True) or {}).get("burn_captions"))
     if burn and not db.query_one("SELECT project_id FROM captions WHERE project_id=?", (h["project_id"],)):
         return err("Generate captions for this project first (section 5), or untick the captions option.")
+    layout, pos = lay.normalise(p["layout"], p["crop_pos"])
     name = f"{h['category'] or 'Highlight'} {fmt_time(h['start_time'])}-{fmt_time(h['end_time'])}"
     cid = db.execute(
-        "INSERT INTO clips (project_id, name, start_time, end_time, burn_captions) VALUES (?,?,?,?,?)",
-        (h["project_id"], name, h["start_time"], h["end_time"], 1 if burn else 0))
+        "INSERT INTO clips (project_id, name, start_time, end_time, burn_captions, layout, crop_pos) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (h["project_id"], name, h["start_time"], h["end_time"], 1 if burn else 0, layout, pos))
     jobs.submit_clip(cid)
     return jsonify(clip=cid), 201
 

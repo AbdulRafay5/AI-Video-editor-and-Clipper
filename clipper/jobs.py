@@ -8,7 +8,8 @@ import config
 from . import captions as cap
 from . import db
 from . import highlights as hl
-from . import llm, transcription, video
+from . import layout as lay
+from . import llm, tracking, transcription, video
 
 log = logging.getLogger("clipper.jobs")
 
@@ -39,22 +40,42 @@ def cancel_clip(clip_id):
     return False
 
 
-def _prepare_captions(clip, clip_id):
+def _prepare_captions(clip, clip_id, layout, info):
     """Build the caption work folder for a clip. Returns (work_dir_or_None, note_or_None)."""
     row = db.query_one("SELECT captions_json, style_json FROM captions WHERE project_id=?",
                        (clip["project_id"],))
     if not row:
         raise video.VideoError("This project has no captions. Generate captions first.")
     caps = json.loads(row["captions_json"])
-    style = cap.normalise_style(json.loads(row["style_json"]))
-    info = video.probe(clip["source_path"])  # real displayed size (handles rotation)
-    ass, count = cap.build_ass(caps, style, info["width"], info["height"],
-                               clip["start_time"], clip["end_time"])
+    style = lay.adapt_caption_style(json.loads(row["style_json"]), layout)
+    fw, fh = lay.frame_size(layout, info["width"], info["height"])
+    ass, count = cap.build_ass(caps, style, fw, fh, clip["start_time"], clip["end_time"])
     if count == 0:
         return None, "No speech in this part of the video, so no captions were added."
     work_dir = config.WORK_DIR / f"clip_{clip_id}"
     cap.prepare_workdir(work_dir, ass, style["font"])
     return work_dir, None
+
+
+def _plan_follow(clip, info, cancel, notes):
+    """Face-tracking camera path, or None (with an explanation in notes) if unavailable."""
+    try:
+        plan = tracking.plan_follow(clip["source_path"], clip["start_time"], clip["end_time"],
+                                    info["width"], info["height"], cancel)
+    except video.VideoError as e:
+        notes.append(f"Face tracking unavailable ({e}); used a centred crop instead.")
+        return None
+    except video.Cancelled:
+        raise
+    except Exception:
+        log.exception("Face tracking failed")
+        notes.append("Face tracking failed (see data/clipper.log); used a centred crop instead.")
+        return None
+    if plan is None:
+        notes.append("No faces found, so a centred crop was used.")
+        return None
+    notes.append("Following faces: " + plan["summary"])
+    return plan
 
 
 def _run_clip(clip_id, cancel):
@@ -68,19 +89,31 @@ def _run_clip(clip_id, cancel):
         if cancel.is_set():
             db.execute("UPDATE clips SET status='cancelled' WHERE id=?", (clip_id,))
             return
+        db.execute("UPDATE clips SET status='processing', progress=0, error=NULL WHERE id=?", (clip_id,))
 
         out_dir = config.OUTPUT_DIR / f"project_{clip['project_id']}"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"clip_{clip_id}.mp4"
         expected = clip["end_time"] - clip["start_time"]
 
-        note = None
+        info = video.probe(clip["source_path"])  # real displayed size (handles rotation)
+        layout, crop_pos = lay.normalise(clip.get("layout"), clip.get("crop_pos"))
+        notes, expected_size, plan = [], None, None
+        if layout != "original":
+            ow, oh = lay.out_size()
+            expected_size = (ow, oh)
+            notes.append(f"{lay.LAYOUTS[layout]}, {ow}x{oh}")
+        if layout == "follow":
+            plan = _plan_follow(clip, info, cancel, notes)
         if clip["burn_captions"]:
-            work_dir, note = _prepare_captions(clip, clip_id)
+            work_dir, cap_note = _prepare_captions(clip, clip_id, layout, info)
+            if cap_note:
+                notes.append(cap_note)
+        vf = lay.build_vf(layout, info["width"], info["height"], crop_pos, work_dir is not None, plan)
 
         encoder = "nvenc" if video.nvenc_available() else "x264"
-        db.execute("UPDATE clips SET status='processing', progress=0, encoder=?, error=NULL, note=? "
-                   "WHERE id=?", (encoder, note, clip_id))
+        db.execute("UPDATE clips SET encoder=?, note=? WHERE id=?",
+                   (encoder, ". ".join(notes) or None, clip_id))
 
         last = {"pct": -1}
 
@@ -92,7 +125,7 @@ def _run_clip(clip_id, cancel):
 
         def run(enc):
             video.cut_clip(clip["source_path"], clip["start_time"], clip["end_time"],
-                           out_path, enc, on_progress, cancel, subtitle_dir=work_dir)
+                           out_path, enc, on_progress, cancel, vf=vf, work_dir=work_dir)
 
         try:
             run(encoder)
@@ -104,7 +137,7 @@ def _run_clip(clip_id, cancel):
             db.execute("UPDATE clips SET encoder=?, progress=0 WHERE id=?", (encoder, clip_id))
             run(encoder)
 
-        video.verify_output(out_path, expected)
+        video.verify_output(out_path, expected, expected_size)
         db.execute("UPDATE clips SET status='done', progress=1, output_path=? WHERE id=?",
                    (str(out_path), clip_id))
         log.info("Clip %s done: %s", clip_id, out_path)

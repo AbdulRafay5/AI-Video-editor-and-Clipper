@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS projects (
     original_filename TEXT NOT NULL,
     source_path TEXT NOT NULL,
     duration REAL, width INTEGER, height INTEGER, size_bytes INTEGER,
+    layout TEXT NOT NULL DEFAULT 'original',
+    crop_pos REAL NOT NULL DEFAULT 0.5,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS clips (
@@ -25,6 +27,8 @@ CREATE TABLE IF NOT EXISTS clips (
     encoder TEXT,
     burn_captions INTEGER NOT NULL DEFAULT 0,
     note TEXT,
+    layout TEXT NOT NULL DEFAULT 'original',
+    crop_pos REAL NOT NULL DEFAULT 0.5,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS transcripts (
@@ -61,6 +65,20 @@ CREATE TABLE IF NOT EXISTS highlights (
 );
 """
 
+# Columns added in later stages: upgraded in place so existing data is kept.
+UPGRADES = {
+    "projects": {
+        "layout": "TEXT NOT NULL DEFAULT 'original'",
+        "crop_pos": "REAL NOT NULL DEFAULT 0.5",
+    },
+    "clips": {
+        "burn_captions": "INTEGER NOT NULL DEFAULT 0",
+        "note": "TEXT",
+        "layout": "TEXT NOT NULL DEFAULT 'original'",
+        "crop_pos": "REAL NOT NULL DEFAULT 0.5",
+    },
+}
+
 
 def _connect():
     conn = sqlite3.connect(config.DB_PATH, timeout=30)
@@ -87,26 +105,18 @@ def init_db():
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
 
-        # Upgrade databases created by earlier stages.
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(clips)")}
-        if "burn_captions" not in cols:
-            conn.execute("ALTER TABLE clips ADD COLUMN burn_captions INTEGER NOT NULL DEFAULT 0")
-        if "note" not in cols:
-            conn.execute("ALTER TABLE clips ADD COLUMN note TEXT")
+        for table, columns in UPGRADES.items():
+            existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
         # Jobs that were running when the app last stopped can never finish.
-        conn.execute(
-            "UPDATE clips SET status='failed', error='Interrupted by app restart' "
-            "WHERE status IN ('queued', 'processing')"
-        )
-        conn.execute(
-            "UPDATE transcripts SET status='failed', error='Interrupted by app restart' "
-            "WHERE status IN ('queued', 'processing')"
-        )
-        conn.execute(
-            "UPDATE analyses SET status='failed', error='Interrupted by app restart' "
-            "WHERE status IN ('queued', 'processing')"
-        )
+        for table in ("clips", "transcripts", "analyses"):
+            conn.execute(
+                f"UPDATE {table} SET status='failed', error='Interrupted by app restart' "
+                "WHERE status IN ('queued', 'processing')"
+            )
 
 
 def query(sql, params=()):
