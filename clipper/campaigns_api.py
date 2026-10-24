@@ -1,4 +1,6 @@
-"""Campaign profile routes: upload a brief, review the extracted rules, attach one to a project."""
+"""Campaign profile routes: upload a brief, review the extracted rules, attach one to a project,
+and read or run a clip's compliance check. Also registers every other clipper/*_api.py module."""
+import importlib
 import json
 from pathlib import Path
 
@@ -15,7 +17,16 @@ def err(message, code=400):
 
 
 def register(app):
+    """Register this blueprint plus every other clipper/*_api.py module that defines `bp`,
+    so new feature modules don't need any change to app.py."""
     app.register_blueprint(bp)
+    here = Path(__file__)
+    for path in sorted(here.parent.glob("*_api.py")):
+        if path.stem == here.stem:
+            continue
+        module = importlib.import_module(f"{__package__}.{path.stem}")
+        if hasattr(module, "bp"):
+            app.register_blueprint(module.bp)
 
 
 def _rules(row):
@@ -154,3 +165,26 @@ def set_project_campaign(pid):
         return err("Campaign not found.", 404)
     db.execute("UPDATE projects SET campaign_id=? WHERE id=?", (cid, pid))
     return jsonify(campaign_id=cid)
+
+
+# ---------- compliance checks on finished clips ----------
+
+@bp.get("/api/clips/<int:cid>/compliance")
+def get_compliance(cid):
+    row = db.query_one("SELECT report_json FROM clip_compliance WHERE clip_id=?", (cid,))
+    return jsonify(report=json.loads(row["report_json"]) if row else None)
+
+
+@bp.post("/api/clips/<int:cid>/compliance")
+def run_compliance(cid):
+    clip = db.query_one(
+        "SELECT c.status, c.output_path, p.campaign_id FROM clips c "
+        "JOIN projects p ON p.id = c.project_id WHERE c.id=?", (cid,))
+    if not clip:
+        return err("Clip not found.", 404)
+    if clip["status"] != "done" or not clip["output_path"]:
+        return err("Wait until the clip has finished rendering.", 409)
+    if not clip["campaign_id"]:
+        return err("This project has no campaign. Pick one first.")
+    report = jobs.check_clip_compliance(cid)
+    return jsonify(report=report)

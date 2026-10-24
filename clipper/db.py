@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS highlights (
     duration REAL NOT NULL,
     category TEXT, score INTEGER, llm_score INTEGER,
     reason TEXT, note TEXT,
+    status TEXT NOT NULL DEFAULT 'suggested',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -73,6 +74,11 @@ CREATE TABLE IF NOT EXISTS campaigns (
     status TEXT NOT NULL DEFAULT 'extracting',
     message TEXT, error TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS clip_compliance (
+    clip_id INTEGER PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE,
+    report_json TEXT NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -89,6 +95,9 @@ UPGRADES = {
         "note": "TEXT",
         "layout": "TEXT NOT NULL DEFAULT 'original'",
         "crop_pos": "REAL NOT NULL DEFAULT 0.5",
+    },
+    "highlights": {
+        "status": "TEXT NOT NULL DEFAULT 'suggested'",
     },
 }
 

@@ -14,7 +14,7 @@
   <header>
     <h1>Clipper</h1>
     <span id="encoder-note" class="muted"></span>
-    <nav class="nav"><a href="/">Projects</a><a href="/campaigns">Campaigns</a></nav>
+    <nav class="nav"><a href="/">Projects</a><a href="/campaigns">Campaigns</a><a href="/settings">Settings</a></nav>
   </header>
 
   <main>
@@ -50,7 +50,7 @@
       <p id="pc-msg" class="msg"></p>
 
       <h3>Output format</h3>
-      <p class="muted">Applies to clips you create after changing it. Vertical clips are 1080x1920 for TikTok, Reels and Shorts. With several people on screen, "blurred background" keeps everyone visible; "auto-follow" pans to keep faces in frame.</p>
+      <p class="muted">Applies to clips you create after changing it. Vertical clips are 1080x1920 for TikTok, Reels and Shorts (the size can be changed in Settings). With several people on screen, "blurred background" keeps everyone visible; "auto-follow" pans to keep faces in frame.</p>
       <div class="form-grid">
         <label>Layout
           <select id="fmt-layout">
@@ -240,5 +240,8 @@
   <script src="/static/highlights.js"></script>
   <script src="/static/format.js"></script>
   <script src="/static/projcampaign.js"></script>
+  <script src="/static/clipedit.js"></script>
+  {% for name in extra_scripts %}<script src="/static/{{ name }}"></script>
+  {% endfor %}
 </body>
 </html>

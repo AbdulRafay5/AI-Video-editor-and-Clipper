@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard - Clipper</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .nav { display:flex; gap:14px; margin-left:auto; }
+    .nav a { color:var(--accent); text-decoration:none; }
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+    .stat { border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+    .stat strong { display:block; font-size:1.5rem; }
+    table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+    th { color:var(--muted); font-weight:600; }
+    .scroll { overflow-x:auto; }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Clipper</h1>
+    <nav class="nav">
+      <a href="/">Projects</a><a href="/dashboard">Dashboard</a><a href="/campaigns">Campaigns</a><a href="/settings">Settings</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="row-between">
+        <h2>Overview</h2>
+        <button id="refresh" class="secondary">Refresh</button>
+      </div>
+      <div id="stats" class="stats"></div>
+      <p id="msg" class="msg"></p>
+    </section>
+
+    <section class="card">
+      <h2>Projects</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Project</th><th>Length</th><th>Size</th><th>Clips</th><th>Transcript</th><th>Captions</th><th>Campaign</th><th></th></tr></thead>
+        <tbody id="projects"></tbody>
+      </table></div>
+    </section>
+
+    <section class="card">
+      <h2>Recent clips</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Clip</th><th>Project</th><th>Status</th><th>Created</th></tr></thead>
+        <tbody id="recent"></tbody>
+      </table></div>
+    </section>
+
+    <section class="card">
+      <h2>Disk space</h2>
+      <p id="free" class="muted"></p>
+      <div class="scroll"><table>
+        <thead><tr><th></th><th>What</th><th>Size</th></tr></thead>
+        <tbody id="disk"></tbody>
+      </table></div>
+      <div class="actions">
+        <button id="cleanup">Free up space (ticked items)</button>
+      </div>
+      <p class="muted">Only temporary files can be ticked. They are made again when needed. Your uploaded videos and finished clips are never touched here.</p>
+      <p id="cleanup-msg" class="msg"></p>
+    </section>
+  </main>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

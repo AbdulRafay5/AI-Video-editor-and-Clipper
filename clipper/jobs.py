@@ -3,11 +3,12 @@ import logging
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import config
 from . import campaigns as camp
 from . import captions as cap
-from . import db
+from . import compliance, db
 from . import highlights as hl
 from . import layout as lay
 from . import llm, steering, tracking, transcription, video
@@ -79,6 +80,64 @@ def _plan_follow(clip, info, cancel, notes):
     return plan
 
 
+def _clip_words(project_id, start, end):
+    """(seconds_into_clip, word) pairs for a clip: from the edited captions if they exist,
+    otherwise from the transcript."""
+    pairs = []
+    row = db.query_one("SELECT captions_json FROM captions WHERE project_id=?", (project_id,))
+    if row:
+        for c in json.loads(row["captions_json"]):
+            for w in c.get("words", []):
+                if w["end"] > start and w["start"] < end:
+                    pairs.append((max(w["start"] - start, 0.0), w["word"]))
+        return pairs
+    t = db.query_one("SELECT result_json FROM transcripts WHERE project_id=? AND status='done'",
+                     (project_id,))
+    if t and t["result_json"]:
+        for seg in json.loads(t["result_json"])["segments"]:
+            for w in seg.get("words", []):
+                if w["end"] > start and w["start"] < end:
+                    pairs.append((max(w["start"] - start, 0.0), w["word"]))
+    return pairs
+
+
+def check_clip_compliance(clip_id, cancel=None, out_path=None):
+    """Check a finished clip against its project's campaign and store the report.
+    Returns the report, or None if the project has no campaign."""
+    cancel = cancel or threading.Event()
+    clip = db.query_one(
+        "SELECT c.*, p.campaign_id FROM clips c JOIN projects p ON p.id = c.project_id WHERE c.id=?",
+        (clip_id,))
+    if not clip:
+        return None
+    crow = None
+    if clip["campaign_id"]:
+        crow = db.query_one("SELECT name, rules_json FROM campaigns WHERE id=?", (clip["campaign_id"],))
+    if not crow:
+        db.execute("DELETE FROM clip_compliance WHERE clip_id=?", (clip_id,))
+        return None
+
+    rules = camp.normalise_rules(json.loads(crow["rules_json"]))
+    path = Path(out_path or clip["output_path"] or "")
+    try:
+        out_info = video.probe(path)
+        words = _clip_words(clip["project_id"], clip["start_time"], clip["end_time"])
+        report = compliance.check_clip(rules, out_info, words, path, cancel)
+    except video.Cancelled:
+        raise
+    except Exception:
+        log.exception("Compliance check for clip %s failed", clip_id)
+        report = compliance.failed_report(
+            "The automatic checks could not run (see data/clipper.log). Check this clip by hand.")
+    report["campaign"] = crow["name"]
+    db.execute(
+        "INSERT INTO clip_compliance (clip_id, report_json) VALUES (?, ?) "
+        "ON CONFLICT(clip_id) DO UPDATE SET report_json=excluded.report_json, "
+        "updated_at=CURRENT_TIMESTAMP",
+        (clip_id, json.dumps(report)))
+    return report
+
+
 def _run_clip(clip_id, cancel):
     work_dir = None
     try:
@@ -139,6 +198,7 @@ def _run_clip(clip_id, cancel):
             run(encoder)
 
         video.verify_output(out_path, expected, expected_size)
+        check_clip_compliance(clip_id, cancel, out_path)   # no-op if the project has no campaign
         db.execute("UPDATE clips SET status='done', progress=1, output_path=? WHERE id=?",
                    (str(out_path), clip_id))
         log.info("Clip %s done: %s", clip_id, out_path)

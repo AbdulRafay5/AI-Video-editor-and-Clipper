@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings - Clipper</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .nav { display:flex; gap:14px; margin-left:auto; }
+    .nav a { color:var(--accent); text-decoration:none; }
+    .check-row { display:flex; gap:10px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border); }
+    .check-row:last-child { border-bottom:0; }
+    .banner { padding:10px 12px; border-radius:8px; border:1px solid var(--warn); color:var(--warn); margin-bottom:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Clipper</h1>
+    <nav class="nav">
+      <a href="/">Projects</a><a href="/dashboard">Dashboard</a><a href="/campaigns">Campaigns</a><a href="/settings">Settings</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="row-between">
+        <h2>Environment check</h2>
+        <button id="recheck" class="secondary">Check again</button>
+      </div>
+      <div id="system"><p class="muted">Checking...</p></div>
+    </section>
+
+    <section class="card">
+      <h2>Settings</h2>
+      <div id="restart-banner" class="banner hidden">Saved. Restart the app for these changes to take effect:
+        press Ctrl+C in the terminal running it, then run <code>python app.py</code> again.</div>
+      <div id="fields" class="form-grid"></div>
+      <div class="actions">
+        <button id="save">Save settings</button>
+        <button id="reset" class="secondary">Reset to defaults</button>
+      </div>
+      <p id="msg" class="msg"></p>
+      <p id="file" class="muted"></p>
+    </section>
+  </main>
+
+  <script src="/static/settings.js"></script>
+</body>
+</html>
