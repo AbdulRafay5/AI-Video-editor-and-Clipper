@@ -2,20 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Dashboard - Clipper</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
-    .nav { display:flex; gap:14px; margin-left:auto; }
-    .nav a { color:var(--accent); text-decoration:none; }
-    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
-    .stat { border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
-    .stat strong { display:block; font-size:1.5rem; }
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:14px; }
+    .stat { border:3px solid var(--fg); padding:10px 14px; background:var(--card); box-shadow:5px 5px 0 var(--shadow); }
+    .stat strong { display:block; font-family:var(--display); font-style:italic; font-size:2.4rem; font-weight:400; line-height:1.1; }
     table { width:100%; border-collapse:collapse; font-size:.9rem; }
-    th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
-    th { color:var(--muted); font-weight:600; }
+    th, td { text-align:left; padding:8px; border-bottom:2px solid var(--fg); vertical-align:top; }
+    th { color:var(--muted); }
     .scroll { overflow-x:auto; }
-    a { color:var(--accent); }
   </style>
 </head>
 <body>
@@ -68,5 +65,6 @@
   </main>
 
   <script src="/static/dashboard.js"></script>
+  <script src="/static/ext_persona.js"></script>
 </body>
 </html>
