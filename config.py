@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -80,8 +79,6 @@ _overrides = load_saved()
 
 
 def _get(name):
-    if name in os.environ:
-        return _coerce(name, os.environ[name])
     return _overrides.get(name, SETTINGS[name][0])
 
 
