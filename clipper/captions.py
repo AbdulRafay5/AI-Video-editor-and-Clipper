@@ -9,7 +9,7 @@ from pathlib import Path
 import config
 from . import video
 
-# Fonts we can use: family name -> font files to copy from the Windows fonts folder.
+# Fonts we can use: family name -> font files to copy into FFmpeg's work folder.
 FONT_FILES = {
     "Arial": ["arial.ttf", "arialbd.ttf"],
     "Impact": ["impact.ttf"],
@@ -17,6 +17,9 @@ FONT_FILES = {
     "Verdana": ["verdana.ttf", "verdanab.ttf"],
     "Trebuchet MS": ["trebuc.ttf", "trebucbd.ttf"],
     "Tahoma": ["tahoma.ttf", "tahomabd.ttf"],
+}
+LINUX_FONT_FILES = {
+    "Arial": ["LiberationSans-Regular.ttf", "LiberationSans-Bold.ttf"],
 }
 
 DEFAULT_STYLE = {
@@ -40,11 +43,20 @@ SENTENCE_END = re.compile(r"[.!?\u2026]$")
 # ---------- fonts and style ----------
 
 def _fonts_dir():
+    if os.name != "nt":
+        return Path("/usr/share/fonts/truetype/liberation")
     return Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
 
 
+def _font_files(name):
+    files = FONT_FILES.get(name, [])
+    if files and all((_fonts_dir() / fname).is_file() for fname in files):
+        return files
+    return LINUX_FONT_FILES.get(name, [])
+
+
 def available_fonts():
-    return [name for name, files in FONT_FILES.items() if (_fonts_dir() / files[0]).exists()]
+    return [name for name in FONT_FILES if _font_files(name)]
 
 
 def normalise_style(raw):
@@ -287,7 +299,7 @@ def prepare_workdir(work_dir, ass_text, font):
     work_dir.mkdir(parents=True, exist_ok=True)
     fonts = work_dir / "fonts"
     fonts.mkdir(exist_ok=True)
-    for fname in FONT_FILES.get(font, []):
+    for fname in _font_files(font):
         src = _fonts_dir() / fname
         if src.exists():
             shutil.copy2(src, fonts / fname)

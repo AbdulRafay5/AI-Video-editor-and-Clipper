@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:5000:8000"
+    environment:
+      OLLAMA_URL: http://ollama:11434
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama-data:/root/.ollama
+    expose:
+      - "11434"
+    restart: unless-stopped
+
+volumes:
+  ollama-data:
