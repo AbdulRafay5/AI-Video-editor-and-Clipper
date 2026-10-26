@@ -3,6 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <script>
+    if (sessionStorage.getItem("persona-wipe") === "1") {
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) sessionStorage.removeItem("persona-wipe");
+      else document.documentElement.classList.add("persona-arriving");
+    }
+  </script>
   <title>Settings - Clipper</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
