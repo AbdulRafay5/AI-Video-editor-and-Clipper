@@ -53,10 +53,18 @@ def _pick(variants, provider):
     valid = [v for raw in variants if (v := _rendition(raw, provider))]
     if not valid:
         return None
-    # MoneyPrinterTurbo prefers portrait for vertical outputs and the smallest
-    # adequate rendition. Use landscape only as centre-crop fallback.
+    # MoneyPrinterTurbo prefers the smallest rendition that really fills
+    # the target resolution. Never choose a 400px preview over usable HD.
+    adequate = [x for x in valid if x[0] >= 720 and x[1] >= 1280]
+    portrait_hd = [x for x in adequate if x[1] > x[0]]
+    if portrait_hd:
+        return min(portrait_hd, key=lambda item: item[0]*item[1])
+    if adequate:
+        return min(adequate, key=lambda item: item[0]*item[1])
+    # If no HD file exists, use the best available portrait rather than
+    # upscaling a very small thumbnail by choosing the smallest file.
     portrait = [x for x in valid if x[1] > x[0]]
-    return min(portrait or valid, key=lambda item: item[0]*item[1])
+    return max(portrait or valid, key=lambda item: item[0]*item[1])
 
 
 def parse(provider, data):
