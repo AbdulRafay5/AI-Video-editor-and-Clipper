@@ -108,6 +108,22 @@ CREATE TABLE IF NOT EXISTS creator_image_jobs (
     report_json TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS creator_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT NOT NULL DEFAULT 'queued',
+    options_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS creator_batch_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES creator_batches(id) ON DELETE CASCADE,
+    project_id INTEGER NOT NULL UNIQUE REFERENCES creator_projects(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'queued',
+    error TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_creator_batch_items_batch ON creator_batch_items(batch_id, id);
 CREATE TABLE IF NOT EXISTS creator_auto_jobs (
     project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -232,6 +248,15 @@ def init_db():
         conn.execute(
             "UPDATE creator_music_jobs SET status='failed', "
             "report_json='{\"error\":\"Interrupted by app restart.\"}', "
+            "updated_at=CURRENT_TIMESTAMP WHERE status='running'"
+        )
+        conn.execute(
+            "UPDATE creator_batches SET status='interrupted', updated_at=CURRENT_TIMESTAMP "
+            "WHERE status='running'"
+        )
+        conn.execute(
+            "UPDATE creator_batch_items SET status='interrupted', "
+            "error='Batch interrupted by app restart; retry to resume saved stages.', "
             "updated_at=CURRENT_TIMESTAMP WHERE status='running'"
         )
         conn.execute(
