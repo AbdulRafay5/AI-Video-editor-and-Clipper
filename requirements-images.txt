@@ -1,0 +1,9 @@
+# OPTIONAL: local SD-Turbo scene image generation, separate from core app.
+# Install a Windows CPU/CUDA-enabled PyTorch first as appropriate for your system.
+# The model is downloaded on demand only with explicit UI approval.
+torch>=2.3,<3
+diffusers>=0.30,<1
+transformers>=4.44,<5
+accelerate>=0.34,<2
+safetensors>=0.4,<1
+pillow>=10,<13
