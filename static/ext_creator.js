@@ -71,7 +71,7 @@
       const {project} = await request("GET", "/api/creator/projects/" + id);
       if(selected !== id) return;
       renderProject(project);
-      if(["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status)) {
+      if(["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images","generating_video"].includes(project.status)) {
         polling=setInterval(async () => {
           if(selected !== id) return stopPolling();
           try {
@@ -680,7 +680,8 @@
     const visualMode=document.createElement("select");
     for(const [value,label] of [
       ["stock","Stock footage · Pexels / Pixabay / Coverr"],
-      ["ai","AI-generated visuals · local SD-Turbo images + cinematic motion"]
+      ["ai","AI images + motion · local SD-Turbo"],
+      ["neural_video","True AI video · local CogVideoX-2B (experimental)"]
     ]){
       const option=document.createElement("option");
       option.value=value;option.textContent=label;
@@ -701,12 +702,18 @@
       " Allow initial local SD-Turbo model download (only required once)"));
     function applyVisualMode(){
       const ai = visualMode.value==="ai";
-      stockApproval.hidden=ai;
-      autoImageDownloadLabel.hidden=!ai;
-      visualModeNote.textContent=ai
-        ? "No stock API calls. Generates fresh AI images for every scene, including opening and ending, and animates them into MP4 clips. This is not neural text-to-video."
-        : "Uses your configured Pexels, Pixabay or Coverr key to fetch footage. Does not generate AI images.";
-      if(ai)autoStock.checked=false;
+      const neural = visualMode.value==="neural_video";
+      stockApproval.hidden=ai||neural;
+      autoImageDownloadLabel.hidden=!(ai||neural);
+      visualModeNote.textContent=neural
+        ? "Genuine neural text-to-video: CogVideoX-2B generates 49 moving frames for each scene, locally. No Pexels. First model download is large; 6GB VRAM requires very slow CPU offloading and may fail."
+        : ai
+          ? "No stock API calls. SD-Turbo creates fresh still images for every scene; FFmpeg adds camera motion. This is NOT neural text-to-video."
+          : "Uses your configured Pexels, Pixabay or Coverr key to fetch stock video clips.";
+      autoImageDownloadLabel.lastChild.textContent=neural
+        ? " Allow first-use CogVideoX-2B model download (large, explicit opt-in)"
+        : " Allow first-use SD-Turbo image model download";
+      if(ai||neural)autoStock.checked=false;
     }
     visualMode.onchange=applyVisualMode;
     applyVisualMode();
@@ -775,7 +782,7 @@
         await request("POST","/api/creator/projects/"+project.id+"/auto/start",{
           visual_mode:visualMode.value,
           approve_stock_download:visualMode.value==="stock"&&autoStock.checked,
-          approve_image_model_download:visualMode.value==="ai"&&autoImageDownload.checked,
+          approve_image_model_download:visualMode.value!=="stock"&&autoImageDownload.checked,
           align_captions:autoAlign.checked,
           music:autoMusic.value,
           approve_model_download:autoModelConsent.checked
