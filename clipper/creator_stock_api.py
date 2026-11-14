@@ -232,7 +232,7 @@ def auto_fill(pid):
                                    "WHERE id=?", (pid,)).fetchone()
             if not project:
                 return jsonify(error="Project not found."), 404
-            if project["status"] in creator.BUSY or project["status"] == "sourcing_visuals":
+            if project["status"] in creator.BUSY or project["status"] in ("sourcing_visuals", "aligning_captions"):
                 return jsonify(error="Another production stage is running."), 409
             if not project["script_json"]:
                 return jsonify(error="Save a script first."), 409
