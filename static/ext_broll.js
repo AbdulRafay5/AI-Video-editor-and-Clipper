@@ -10,10 +10,16 @@
     <div class="actions">
       <input id="broll-file" type="file" accept=".mp4,.mov,.mkv,.webm,.png,.jpg,.jpeg,.webp">
       <button id="broll-add" type="button">Add footage</button>
-      <input id="broll-description" type="text" maxlength="160" placeholder="Describe the scene (optional)" aria-label="B-roll description">\n      <button id="broll-refresh" class="secondary" type="button">Refresh</button>
+      <input id="broll-description" type="text" maxlength="160" placeholder="Describe the scene (optional)" aria-label="B-roll description">
+      <button id="broll-refresh" class="secondary" type="button">Refresh</button>
     </div>
     <p id="broll-message" class="msg" role="status"></p>
-    <div id="broll-items" class="form-grid"></div>\n    <h4>Suggested cutaways</h4>\n    <p class="muted">Choose a clip and find relevant B-roll moments. Suggestions are not applied automatically.</p>\n    <div class="actions"><select id="broll-clip" aria-label="Clip to analyse"></select>\n      <button type="button" id="broll-suggest">Suggest cutaways</button></div>\n    <div id="broll-suggestions" role="status"></div>`;
+    <div id="broll-items" class="form-grid"></div>
+    <h4>Suggested cutaways</h4>
+    <p class="muted">Choose a clip and find relevant B-roll moments. Suggestions are not applied automatically.</p>
+    <div class="actions"><select id="broll-clip" aria-label="Clip to analyse"></select>
+      <button type="button" id="broll-suggest">Suggest cutaways</button></div>
+    <div id="broll-suggestions" role="status"></div>`;
   panel.append(section);
   const $ = id => document.getElementById(id);
   const message = msg => { $("broll-message").textContent = msg; };
@@ -41,7 +47,24 @@
         if (item.kind === "video") { media.controls = true; media.preload = "metadata"; }
         else media.alt = "B-roll image";
         const label = document.createElement("p");
-        label.textContent = `${item.name} · ${item.kind} · ${(item.bytes/1048576).toFixed(1)} MB`;\n        const description = document.createElement("input");\n        description.type = "text";\n        description.maxLength = 160;\n        description.value = item.description || "";\n        description.placeholder = "What does this footage show?";\n        description.setAttribute("aria-label", `Description for ${item.name}`);\n        const saveDescription = document.createElement("button");\n        saveDescription.type = "button";\n        saveDescription.className = "secondary";\n        saveDescription.textContent = "Save description";\n        saveDescription.addEventListener("click", async () => {\n          const res = await fetch(`/api/projects/${pid}/broll/${item.id}`, {\n            method: "PATCH", headers: {"Content-Type": "application/json"},\n            body: JSON.stringify({description: description.value})\n          });\n          message(res.ok ? "Description saved." : "Could not save the description.");\n        });
+        label.textContent = `${item.name} · ${item.kind} · ${(item.bytes/1048576).toFixed(1)} MB`;
+        const description = document.createElement("input");
+        description.type = "text";
+        description.maxLength = 160;
+        description.value = item.description || "";
+        description.placeholder = "What does this footage show?";
+        description.setAttribute("aria-label", `Description for ${item.name}`);
+        const saveDescription = document.createElement("button");
+        saveDescription.type = "button";
+        saveDescription.className = "secondary";
+        saveDescription.textContent = "Save description";
+        saveDescription.addEventListener("click", async () => {
+          const res = await fetch(`/api/projects/${pid}/broll/${item.id}`, {
+            method: "PATCH", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({description: description.value})
+          });
+          message(res.ok ? "Description saved." : "Could not save the description.");
+        });
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "secondary";
@@ -62,20 +85,61 @@
   document.addEventListener("click", event => {
     if (event.target.closest(".project-row")) setTimeout(() => { refresh(); loadClips(); $("broll-suggestions").replaceChildren(); }, 0);
   });
-  async function loadClips() {\n    const pid = currentProjectId();\n    if (!pid) return;\n    try {\n      const res = await fetch(`/api/projects/${pid}/clips`);\n      const clips = await res.json();\n      if (!res.ok || !Array.isArray(clips)) return;\n      const select = $("broll-clip");\n      const selected = select.value;\n      select.replaceChildren();\n      for (const clip of clips) {\n        const opt = document.createElement("option");\n        opt.value = String(clip.id);\n        opt.textContent = `${clip.name} (${Math.round(clip.end_time - clip.start_time)}s)`;\n        select.append(opt);\n      }\n      if ([...select.options].some(o => o.value === selected)) select.value = selected;\n    } catch (_) { message("Could not load clips."); }\n  }\n  $("broll-suggest").addEventListener("click", async () => {\n    const cid = $("broll-clip").value;\n    const out = $("broll-suggestions");\n    if (!cid) { out.textContent = "Create a clip first."; return; }\n    out.textContent = "Matching footage to transcript...";\n    try {\n      const res = await fetch(`/api/clips/${cid}/broll/suggestions`);\n      const data = await res.json();\n      if (!res.ok) throw Error(data.error || "Could not generate suggestions.");\n      out.replaceChildren();\n      const note = document.createElement("p");\n      note.textContent = data.message;\n      out.append(note);\n      for (const suggestion of data.suggestions) {\n        const row = document.createElement("p");\n        row.textContent = `${suggestion.start.toFixed(1)}–${suggestion.end.toFixed(1)}s: ${suggestion.asset_name} (matched: ${suggestion.matched_terms.join(", ")})`;\n        out.append(row);\n      }\n    } catch (err) { out.textContent = err.message; }\n  });\n  $("broll-refresh").addEventListener("click", () => { refresh(); loadClips(); });
+  async function loadClips() {
+    const pid = currentProjectId();
+    if (!pid) return;
+    try {
+      const res = await fetch(`/api/projects/${pid}/clips`);
+      const clips = await res.json();
+      if (!res.ok || !Array.isArray(clips)) return;
+      const select = $("broll-clip");
+      const selected = select.value;
+      select.replaceChildren();
+      for (const clip of clips) {
+        const opt = document.createElement("option");
+        opt.value = String(clip.id);
+        opt.textContent = `${clip.name} (${Math.round(clip.end_time - clip.start_time)}s)`;
+        select.append(opt);
+      }
+      if ([...select.options].some(o => o.value === selected)) select.value = selected;
+    } catch (_) { message("Could not load clips."); }
+  }
+  $("broll-suggest").addEventListener("click", async () => {
+    const cid = $("broll-clip").value;
+    const out = $("broll-suggestions");
+    if (!cid) { out.textContent = "Create a clip first."; return; }
+    out.textContent = "Matching footage to transcript...";
+    try {
+      const res = await fetch(`/api/clips/${cid}/broll/suggestions`);
+      const data = await res.json();
+      if (!res.ok) throw Error(data.error || "Could not generate suggestions.");
+      out.replaceChildren();
+      const note = document.createElement("p");
+      note.textContent = data.message;
+      out.append(note);
+      for (const suggestion of data.suggestions) {
+        const row = document.createElement("p");
+        row.textContent = `${suggestion.start.toFixed(1)}–${suggestion.end.toFixed(1)}s: ${suggestion.asset_name} (matched: ${suggestion.matched_terms.join(", ")})`;
+        out.append(row);
+      }
+    } catch (err) { out.textContent = err.message; }
+  });
+  $("broll-refresh").addEventListener("click", () => { refresh(); loadClips(); });
   $("broll-add").addEventListener("click", async () => {
     const pid = currentProjectId();
     const file = $("broll-file").files[0];
     if (!pid || !file) { message("Select a project and choose a file."); return; }
     if (file.size > 200 * 1024 * 1024) { message("Maximum file size is 200 MB."); return; }
     const form = new FormData();
-    form.append("file", file);\n    form.append("description", $("broll-description").value);
+    form.append("file", file);
+    form.append("description", $("broll-description").value);
     message("Adding footage...");
     try {
       const res = await fetch(`/api/projects/${pid}/broll`, {method:"POST",body:form});
       const data = await res.json();
       if (!res.ok) throw Error(data.error || "Upload failed.");
-      $("broll-file").value = "";\n      $("broll-description").value = "";
+      $("broll-file").value = "";
+      $("broll-description").value = "";
       message("Footage added to the local library.");
       refresh();
     } catch (e) { message(e.message); }
