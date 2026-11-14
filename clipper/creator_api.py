@@ -156,15 +156,15 @@ def generate_script(pid):
         state = conn.execute("SELECT status FROM creator_projects WHERE id=?", (pid,)).fetchone()
         if not state:
             return jsonify(error="Project not found."), 404
-        if state["status"] == "generating_script":
-            return jsonify(error="Script generation is already running."), 409
+        if state["status"] in ("generating_script", "generating_narration"):
+            return jsonify(error="Another generation is already running."), 409
     readiness = llm.status()
     if not (readiness["running"] and readiness["installed"]):
         return jsonify(error=readiness["message"]), 503
     with db.get_db() as conn:
         cur = conn.execute(
             "UPDATE creator_projects SET status='generating_script', error=NULL, "
-            "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status!='generating_script'", (pid,))
+            "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('generating_script','generating_narration')", (pid,))
         if not cur.rowcount:
             return jsonify(error="Script generation is already running."), 409
         conn.execute("UPDATE creator_stages SET status='running', error=NULL, "
@@ -185,7 +185,7 @@ def save_script(pid):
         if not state:
             return jsonify(error="Project not found."), 404
         if state["status"] == "generating_script":
-            return jsonify(error="Wait until script generation finishes."), 409
+            return jsonify(error="Wait until the current generation finishes."), 409
         conn.execute("UPDATE creator_projects SET script_json=?, status='script_ready', "
                      "error=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                      (json.dumps(script, ensure_ascii=False), pid))
