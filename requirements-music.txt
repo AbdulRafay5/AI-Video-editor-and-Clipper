@@ -1,0 +1,10 @@
+# Optional local neural soundtrack generation (MusicGen Small).
+# Install only when you want AI-generated music; the core clipper does not need this.
+#
+# Windows: install a compatible CPU/CUDA PyTorch build from https://pytorch.org/get-started/locally/
+# before or alongside these optional packages. The first model download is
+# opt-in from Creator Studio; inference itself runs on this computer.
+transformers>=4.45,<5
+torch>=2.3,<3
+numpy>=1.26,<3
+sentencepiece>=0.2,<1
