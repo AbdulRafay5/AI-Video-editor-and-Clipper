@@ -6,6 +6,7 @@ on:
     paths:
       - 'clipper/creator_api.py'
       - 'clipper/creator_auto_api.py'
+      - 'clipper/creator_batch_api.py'
       - 'clipper/creator_image_api.py'
       - 'clipper/creator_video_api.py'
       - 'clipper/local_text_to_video.py'
@@ -31,6 +32,7 @@ on:
       - 'clipper/db.py'
       - 'tests/test_creator_api.py'
       - 'tests/test_creator_auto.py'
+      - 'tests/test_creator_batch.py'
       - 'tests/test_creator_images.py'
       - 'tests/test_creator_neural_video.py'
       - 'tests/test_creator_narration.py'
