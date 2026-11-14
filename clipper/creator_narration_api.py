@@ -90,7 +90,14 @@ def _run(pid, script, engine):
 
 @bp.get("/api/creator/narration/capabilities")
 def narration_capabilities():
-    return jsonify(engine=local_narration.backend(), free=True, local=True)
+    options = local_narration.available_backends()
+    default = next((e for e in options if e["ready"] and e["name"] == "kokoro"), None)
+    if default is None:
+        default = next((e for e in options if e["ready"] and not e["online"]), None)
+    if default is None:
+        default = next((e for e in options if e["ready"]), None)
+    return jsonify(engines=options, default=default["name"] if default else None,
+                   free=True, online_optional=True)
 
 
 @bp.get("/api/creator/projects/<int:pid>/narration")
@@ -102,9 +109,15 @@ def narration_status(pid):
 
 @bp.post("/api/creator/projects/<int:pid>/narration/generate")
 def generate_narration(pid):
-    engine = local_narration.backend()
-    if not engine["ready"]:
-        return jsonify(error=engine["description"]), 503
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return jsonify(error="Invalid voice selection."), 400
+    try:
+        engine = local_narration.select_backend(body.get("engine"), body.get("voice"))
+    except local_narration.NarrationError as exc:
+        return jsonify(error=str(exc)), 503
     with db.get_db() as conn:
         project = conn.execute("SELECT status, script_json FROM creator_projects "
                                "WHERE id=?", (pid,)).fetchone()
