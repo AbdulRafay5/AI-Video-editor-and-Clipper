@@ -86,7 +86,7 @@ class NeuralVideoTests(unittest.TestCase):
         folder.mkdir(parents=True,exist_ok=True)
         sample=Path(self.tmp.name)/"moving_fixture.mp4"
         subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y",
-                        "-f","lavfi","-i","testsrc=size=320x240:rate=8:duration=2",
+                        "-f","lavfi","-i","testsrc=size=320x288:rate=8:duration=2",
                         "-c:v","libx264","-pix_fmt","yuv420p",str(sample)],
                        check=True,timeout=30)
         prompts=[]
