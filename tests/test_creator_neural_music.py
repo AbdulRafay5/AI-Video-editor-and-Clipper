@@ -170,6 +170,16 @@ class NeuralApiTests(unittest.TestCase):
         self.assertEqual(result.get_json()["duration"], 30)
         self.assertIn("atmospheric rain documentary", result.get_json()["prompt"])
 
+    def test_sample_composition_length_controls(self):
+        invalid = self.client.post(self.prefix + "/preview",
+            json={"mood": "calm", "sample_seconds": 25})
+        self.assertEqual(invalid.status_code, 400)
+        valid = self.client.post(self.prefix + "/preview",
+            json={"mood": "calm", "sample_seconds": 20, "duration": 60})
+        self.assertEqual(valid.status_code, 200)
+        self.assertEqual(valid.get_json()["sample_seconds"], 20)
+        self.assertEqual(valid.get_json()["duration"], 60)
+
     def test_rejects_bad_prompt_and_missing_install(self):
         self.assertEqual(self.client.post(
             self.prefix + "/preview", json={"mood": "calm", "prompt": "x"*501}).status_code, 400)
@@ -195,7 +205,9 @@ class NeuralApiTests(unittest.TestCase):
         self.assertEqual(status["status"], "done")
         self.assertEqual(status["report"]["duration"], 6.0)
         self.assertEqual(creator._music(self.pid)["duration"], 6.0)
-        self.assertEqual(self.client.get(self.prefix + "/audio").status_code, 200)
+        audio_response = self.client.get(self.prefix + "/audio")
+        self.assertEqual(audio_response.status_code, 200)
+        audio_response.close()
         self.assertNotEqual(creator._project(self.pid)["status"], "generating_music")
 
     def test_failure_preserves_previous_music(self):
