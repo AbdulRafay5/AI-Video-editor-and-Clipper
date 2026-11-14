@@ -33,7 +33,7 @@ def _request(pid, data):
         raise LookupError("Project not found.")
     if not isinstance(data, dict):
         raise ValueError("Expected music mood and prompt options.")
-    if set(data) - {"mood", "prompt", "duration", "download_model"}:
+    if set(data) - {"mood", "prompt", "duration", "download_model", "sample_seconds"}:
         raise ValueError("Unknown music generation option.")
     mood = data.get("mood", "cinematic")
     if mood not in MOODS:
@@ -46,6 +46,9 @@ def _request(pid, data):
         type(duration) is not int or not musicgen.MIN_TARGET <= duration <= musicgen.MAX_SECONDS
     ):
         raise ValueError("Duration must be 'match' or 6–180 seconds.")
+    sample_seconds = data.get("sample_seconds", musicgen.SAMPLE_SECONDS)
+    if type(sample_seconds) is not int or sample_seconds not in (8, 12, 16, 20):
+        raise ValueError("Neural composition length must be 8, 12, 16 or 20 seconds.")
     allow_download = data.get("download_model", False)
     if type(allow_download) is not bool:
         raise ValueError("Download permission must be true or false.")
@@ -54,7 +57,7 @@ def _request(pid, data):
               if duration == "match" else duration)
     prepared_prompt = musicgen.build_prompt(project["topic"], script, mood, prompt)
     return {"mood": mood, "prompt": prepared_prompt, "seconds": target,
-            "allow_download": allow_download}
+            "allow_download": allow_download, "sample_seconds": sample_seconds}
 
 
 @bp.get("/api/creator/music/neural/capabilities")
@@ -74,7 +77,7 @@ def preview(pid):
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(prompt=options["prompt"], duration=options["seconds"],
-                   sample_seconds=musicgen.SAMPLE_SECONDS,
+                   sample_seconds=options["sample_seconds"],
                    model=musicgen.MODEL_ID, uses_narration_duration=True)
 
 
@@ -111,7 +114,8 @@ def _generate(pid, options):
     try:
         details = musicgen.generate(
             output, options["prompt"], options["seconds"],
-            allow_download=options["allow_download"])
+            allow_download=options["allow_download"],
+            sample_seconds=options["sample_seconds"])
         validated_duration = creator._probe_audio(output)
         if abs(validated_duration - options["seconds"]) > 0.5:
             raise musicgen.MusicGenError("Generated soundtrack duration did not match the video.")
@@ -199,7 +203,8 @@ def generate(pid):
                 "VALUES (?,'running',?) ON CONFLICT(project_id) DO UPDATE SET "
                 "status='running', report_json=excluded.report_json, updated_at=CURRENT_TIMESTAMP",
                 (pid, json.dumps({"model": musicgen.MODEL_ID, "prompt": options["prompt"],
-                                  "duration": options["seconds"]})))
+                                  "duration": options["seconds"],
+                                  "sample_seconds": options["sample_seconds"]})))
     _executor.submit(_generate, pid, options)
     return jsonify(ok=True, status="generating_music", model=musicgen.MODEL_ID,
                    duration=options["seconds"]), 202
