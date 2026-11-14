@@ -616,6 +616,84 @@
         neuralStatus.textContent="Last neural soundtrack generated: "+data.report.duration+"s using "+data.report.device+
           ". "+(data.report.looped?"Short neural motif is crossfaded to fit the video.":"");
     }).catch(()=>{});
+    const autoPanel = document.createElement("section");
+    autoPanel.className = "card";
+    const autoTitle=document.createElement("h4");
+    autoTitle.textContent="Automatic topic-to-video production";
+    const autoDesc=document.createElement("p");
+    autoDesc.className="muted";
+    autoDesc.textContent="Automatically run script, narration, stock footage, music, captions and final MP4 rendering. Review the video before publishing. Existing completed stages are reused.";
+    const stockApproval=document.createElement("label");
+    const autoStock=document.createElement("input");
+    autoStock.type="checkbox";
+    stockApproval.append(autoStock,document.createTextNode(" Approve free stock-footage downloads for missing scenes"));
+    const alignLabel=document.createElement("label");
+    const autoAlign=document.createElement("input");
+    autoAlign.type="checkbox";
+    alignLabel.append(autoAlign,document.createTextNode(" Align captions locally with Whisper when required"));
+    const musicLabel=document.createElement("label");
+    musicLabel.textContent="Soundtrack ";
+    const autoMusic=document.createElement("select");
+    for(const [value,label] of [["keep","Keep selected music / none"],
+                                ["instrumental","Create free local instrumental if none selected"],
+                                ["none","No music"]]){
+      const option=document.createElement("option");option.value=value;option.textContent=label;
+      autoMusic.append(option);
+    }
+    musicLabel.append(autoMusic);
+    const startAuto=document.createElement("button");
+    startAuto.type="button";
+    startAuto.textContent="Generate video automatically";
+    startAuto.disabled=["generating_script","generating_narration","rendering",
+      "sourcing_visuals","aligning_captions","generating_music"].includes(project.status);
+    const autoMessage=document.createElement("p");
+    autoMessage.className="muted";
+    autoPanel.append(autoTitle,autoDesc,stockApproval,alignLabel,musicLabel,startAuto,autoMessage);
+    visualBox.append(autoPanel);
+    async function refreshAuto(){
+      try{
+        const info=await request("GET","/api/creator/projects/"+project.id+"/auto");
+        if(selected!==project.id) return;
+        const completed=info.report?.completed?.join(", ")||"none";
+        if(info.status==="running"){
+          autoMessage.textContent="Working on "+info.step+" · completed: "+completed;
+          startAuto.disabled=true;
+        }else if(info.status==="blocked"){
+          autoMessage.textContent="Stopped at "+info.step+": "+(info.report?.error||"Review the job report")+
+            ". Completed: "+completed+". You can retry.";
+          startAuto.disabled=false;
+        }else if(info.status==="done"){
+          autoMessage.textContent="Video ready for review. Download or inspect the final MP4 before publishing.";
+          startAuto.disabled=false;
+        }else if(info.status==="interrupted"){
+          autoMessage.textContent="Previous job interrupted. Restart to reuse completed stages.";
+          startAuto.disabled=false;
+        }
+      }catch(err){if(selected===project.id) autoMessage.textContent=err.message;}
+    }
+    refreshAuto();
+    startAuto.onclick=async()=>{
+      if(!confirm("Automatically generate this video using local AI and your saved settings? The final video will require your review before publishing."))return;
+      startAuto.disabled=true;
+      try{
+        await request("POST","/api/creator/projects/"+project.id+"/auto/start",{
+          approve_stock_download:autoStock.checked,
+          align_captions:autoAlign.checked,
+          music:autoMusic.value
+        });
+        say("Automatic video production started. The job status shows each stage.");
+        await refreshAuto();
+      }catch(err){autoMessage.textContent=err.message;startAuto.disabled=false;}
+    };
+    // Poll only while this project's panel is selected; no extra background job.
+    let autoPollCount=0;
+    const autoPoll=setInterval(async()=>{
+      if(selected!==project.id || ++autoPollCount>1800){clearInterval(autoPoll);return;}
+      await refreshAuto();
+      if(["done","blocked"].includes((await request("GET","/api/creator/projects/"+project.id+"/auto")).status)){
+        clearInterval(autoPoll);
+      }
+    },3000);
     const editPanel = document.createElement("section");
     editPanel.className = "card";
     const editTitle = document.createElement("h4");
