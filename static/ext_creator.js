@@ -237,6 +237,53 @@
     visualHint.textContent = "Upload MP4, MOV or MKV footage for the opening, each scene and ending. No paid services or automatic downloads.";
     const visualList = document.createElement("div");
     visualBox.append(visualTitle, visualHint, visualList);
+    const musicRow = document.createElement("div");
+    musicRow.className = "card";
+    const musicTitle = document.createElement("h4");
+    musicTitle.textContent = "Background music · local file";
+    const musicNote = document.createElement("p");
+    musicNote.className = "muted";
+    musicNote.textContent = "Optional MP3, WAV, FLAC or AAC, mixed at low volume by the upstream renderer. Use audio you have rights to.";
+    const musicFile = document.createElement("input");
+    musicFile.type = "file"; musicFile.accept = ".mp3,.wav,.flac,.aac,audio/*";
+    const musicUpload = document.createElement("button");
+    musicUpload.type = "button"; musicUpload.textContent = "Use this music";
+    musicUpload.disabled = ["generating_script","generating_narration","rendering"].includes(project.status);
+    const musicRemove = document.createElement("button");
+    musicRemove.type = "button"; musicRemove.className = "secondary";
+    musicRemove.textContent = "Remove music";
+    musicRemove.disabled = musicUpload.disabled;
+    const musicState = document.createElement("p");
+    musicState.className = "muted";
+    musicRow.append(musicTitle,musicNote,musicFile,musicUpload,musicRemove,musicState);
+    visualBox.append(musicRow);
+    request("GET", "/api/creator/projects/" + project.id + "/music").then(data => {
+      if(selected === project.id) musicState.textContent = data.music
+        ? "Saved: " + data.music.filename + " (" + data.music.duration + " seconds)"
+        : "No background music selected.";
+    }).catch(() => {});
+    musicUpload.onclick = async () => {
+      if(!musicFile.files.length) return say("Choose a music file first.");
+      if(musicFile.files[0].size > 30*1024*1024) return say("Music must be under 30MB.");
+      musicUpload.disabled=true;
+      try {
+        const form = new FormData(); form.append("audio", musicFile.files[0]);
+        const response = await fetch("/api/creator/projects/" + project.id + "/music",
+          {method:"POST",body:form});
+        const result = await response.json();
+        if(!response.ok) throw Error(result.error || "Upload failed.");
+        say("Local music saved. It will be included in the next render.");
+        openProject(project.id);
+      } catch(err) {say(err.message);musicUpload.disabled=false;}
+    };
+    musicRemove.onclick = async () => {
+      musicRemove.disabled=true;
+      try {
+        await request("DELETE","/api/creator/projects/" + project.id + "/music");
+        say("Background music removed from future renders.");
+        openProject(project.id);
+      } catch(err) {say(err.message);musicRemove.disabled=false;}
+    };
     const renderButton = document.createElement("button");
     renderButton.type = "button";
     renderButton.textContent = "Render complete video";
