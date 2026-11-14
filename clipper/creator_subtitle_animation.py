@@ -7,9 +7,9 @@ See clipper/mpt_compat/LICENSE for upstream copyright terms.
 """
 import math
 
-SPRING_SECONDS = 0.32
-MIN_SCALE = 0.60
-MAX_SCALE = 1.30
+SPRING_SECONDS = 0.18
+MIN_SCALE = 0.05
+MAX_SCALE = 1.35
 MODES = ("none", "pop_spring", "fade")
 
 
