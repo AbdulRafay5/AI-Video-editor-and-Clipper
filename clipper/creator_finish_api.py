@@ -200,6 +200,10 @@ def finish_project(pid, base_mp4, revision, finished_root):
     finished_root = Path(finished_root)
     finished_root.mkdir(parents=True, exist_ok=True)
     dest = finished_root / f"finished_{revision}.mp4"
+    from . import creator_render_api as render
+    spec = render._engine(pid).revision(revision)
+    canvas_width = int(spec["settings"]["width"])
+    canvas_height = int(spec["settings"]["height"])
     with tempfile.TemporaryDirectory(prefix="creator-finish-", dir=finished_root) as temp:
         folder = Path(temp)
         filters = []
@@ -214,7 +218,7 @@ def finish_project(pid, base_mp4, revision, finished_root):
                 "highlight_color": opts["highlight_color"],
                 "margin_pct": 16.0,
             })
-            ass, events = cap.build_ass(captions, style, 720, 1280)
+            ass, events = cap.build_ass(captions, style, canvas_width, canvas_height)
             ass = animation.animate_ass(ass, opts["animation"])
             if events == 0:
                 raise FinishError("No usable subtitle events.")
