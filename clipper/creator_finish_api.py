@@ -22,7 +22,8 @@ from . import captions as cap, db, local_narration
 bp = Blueprint("creator_finish", __name__)
 log = logging.getLogger("clipper.creator_finish")
 MAX_FADE = 0.8
-DEFAULT = {"captions": True, "fade_edges": True}
+DEFAULT = {"captions": True, "fade_edges": True, "transition": "cut"}
+TRANSITIONS = {"cut", "fade", "slideleft", "slideright", "zoomin"}
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
@@ -107,10 +108,13 @@ def get_options(pid):
 @bp.put("/api/creator/projects/<int:pid>/captions/options")
 def set_options(pid):
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or set(body) != set(DEFAULT):
+    if not isinstance(body, dict) or not {"captions", "fade_edges"} <= set(body) or set(body) - set(DEFAULT):
         return jsonify(error="Choose caption and fade options."), 400
-    if any(type(value) is not bool for value in body.values()):
+    if any(type(body[k]) is not bool for k in ("captions", "fade_edges")):
         return jsonify(error="Caption and fade selections must be true or false."), 400
+    if body.get("transition", "cut") not in TRANSITIONS:
+        return jsonify(error="Invalid scene transition."), 400
+    body = {**DEFAULT, **body}
     with db.get_db() as conn:
         project = conn.execute("SELECT status FROM creator_projects WHERE id=?", (pid,)).fetchone()
         if not project:
@@ -155,7 +159,7 @@ def download_srt(pid):
 def finish_project(pid, base_mp4, revision, finished_root):
     """Return a safe derived local file path, or the untouched upstream MP4."""
     opts = settings(pid)
-    if not any(opts.values()):
+    if not opts["captions"] and not opts["fade_edges"] and opts["transition"] == "cut":
         return Path(base_mp4)
     if not isinstance(revision, str) or len(revision) != 32 or any(c not in "0123456789abcdef" for c in revision):
         raise FinishError("Invalid renderer revision.")
@@ -191,10 +195,61 @@ def finish_project(pid, base_mp4, revision, finished_root):
                 f"fade=t=out:st={max(0, duration-fade):.3f}:d={fade:.3f}",
             ])
         staging = folder / "finished.mp4"
-        cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-               "-i", str(Path(base_mp4).resolve()), "-vf", ",".join(filters),
-               "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-               "-c:a", "copy", "-movflags", "+faststart", str(staging)]
+        cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
+        if opts["transition"] != "cut":
+            from . import creator_render_api as render
+            from .mpt_compat.video_project import stage_graph
+            engine = render._engine(pid)
+            spec = engine.revision(revision)
+            all_stages = {stage.key: stage for stage in stage_graph(spec)}
+            scenes = spec["scenes"]
+            if len(scenes) < 2:
+                raise FinishError("At least two scenes are required for transitions.")
+            duration = 0.3
+            inputs = []
+            for scene in scenes:
+                stage = all_stages.get(f"{scene['id']}:scene")
+                record = engine._cached(stage) if stage else None
+                if not record:
+                    raise FinishError("A cached scene render is missing; render again.")
+                inputs.append(Path(record["path"]).resolve())
+            for item in inputs:
+                cmd.extend(["-i", str(item)])
+            cmd.extend(["-i", str(Path(base_mp4).resolve())])
+            spec_settings = spec["settings"]
+            fps = int(spec_settings["fps"])
+            width, height = int(spec_settings["width"]), int(spec_settings["height"])
+            graph = []
+            for index, scene in enumerate(scenes):
+                length = float(scene["duration"])
+                if length < duration * 2:
+                    raise FinishError("Some scenes are too short for a smooth transition.")
+                padded = f"tpad=stop_mode=clone:stop_duration={duration:.3f}," if index < len(scenes)-1 else ""
+                graph.append(
+                    f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS,"
+                    f"scale={width}:{height},fps={fps},format=yuv420p,"
+                    + padded + f"trim=duration={length + (duration if index < len(scenes)-1 else 0):.3f},"
+                    + f"setpts=PTS-STARTPTS[v{index}]")
+            running = float(scenes[0]["duration"])
+            prev = "v0"
+            for index in range(1, len(scenes)):
+                tag = f"x{index}"
+                graph.append(f"[{prev}][v{index}]xfade=transition={opts['transition']}:"
+                             f"duration={duration:.3f}:offset={running:.3f}[{tag}]")
+                prev = tag
+                running += float(scenes[index]["duration"])
+            if filters:
+                graph.append(f"[{prev}]" + ",".join(filters) + "[final]")
+            else:
+                graph.append(f"[{prev}]null[final]")
+            script_file = folder / "filters.txt"
+            script_file.write_text(";".join(graph), encoding="utf-8")
+            cmd.extend(["-filter_complex_script", str(script_file),
+                        "-map", "[final]", "-map", f"{len(scenes)}:a:0"])
+        else:
+            cmd.extend(["-i", str(Path(base_mp4).resolve()), "-vf", ",".join(filters)])
+        cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                    "-c:a", "copy", "-movflags", "+faststart", str(staging)])
         try:
             result = subprocess.run(cmd, cwd=folder, capture_output=True,
                                     text=True, timeout=900, creationflags=NO_WINDOW)
