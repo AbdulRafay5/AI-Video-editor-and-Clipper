@@ -42,7 +42,7 @@ and up to three **scene visual descriptions**, or your supplied custom text.
   otherwise the project's target duration.
 - Lengths are bounded to **6–180 seconds**. Longer projects require an
   updated generation and composition approach.
-- MusicGen produces an **8-second neural sample**. This sample is crossfaded
+- MusicGen produces an **8–20-second neural sample**. This sample is crossfaded
   into repeated segments with intro/outro fades so that the track lasts
   exactly the requested duration. The result has real neural timbres, but
   **it is not a unique 60-second model composition**.
