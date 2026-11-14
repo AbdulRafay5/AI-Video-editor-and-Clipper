@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS creator_stages (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(project_id, stage)
 );
+CREATE TABLE IF NOT EXISTS creator_stock_jobs (
+    project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    report_json TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS clip_compliance (
     clip_id INTEGER PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE,
     report_json TEXT NOT NULL,
@@ -163,6 +169,16 @@ def init_db():
             "UPDATE campaigns SET status='failed', error='Interrupted by app restart. "
             "You can read the document again or fill in the rules by hand.' "
             "WHERE status = 'extracting'"
+        )
+        conn.execute(
+            "UPDATE creator_projects SET status='script_ready', "
+            "error='Stock footage sourcing interrupted; retry missing slots.' "
+            "WHERE status='sourcing_visuals'"
+        )
+        conn.execute(
+            "UPDATE creator_stock_jobs SET status='failed', "
+            "report_json='{\"errors\":{\"general\":\"Interrupted by app restart.\"}}' "
+            "WHERE status='running'"
         )
         # An interrupted local script job can be retried safely after restart.
         conn.execute(
