@@ -506,6 +506,67 @@
         openProject(project.id);
       }catch(err){say(err.message);usePreset.disabled=false;}
     };
+    const editPanel = document.createElement("section");
+    editPanel.className = "card";
+    const editTitle = document.createElement("h4");
+    editTitle.textContent = "Advanced video editing";
+    const editHint = document.createElement("p");
+    editHint.className = "muted";
+    editHint.textContent = "Changes apply to footage; narration, subtitle order and scene lengths stay intact. Crop fills the frame; letterbox shows the whole shot.";
+    function selectEditing(label, values) {
+      const wrapper = document.createElement("label");
+      wrapper.textContent = label + " ";
+      const control = document.createElement("select");
+      for (const [value, display] of values) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = display;
+        control.append(option);
+      }
+      wrapper.append(control);
+      editPanel.append(wrapper);
+      return control;
+    }
+    editPanel.append(editTitle, editHint);
+    const outputFormat = selectEditing("Output format",
+      [["portrait","Portrait 9:16 (720×1280)"],["landscape","Landscape 16:9 (1280×720)"],
+       ["square","Square 1:1 (1080×1080)"]]);
+    const fitMode = selectEditing("Footage fitting",
+      [["cover","Crop to fill"],["contain","Letterbox / show full source"]]);
+    const footageSpeed = selectEditing("Footage playback speed",
+      [["0.5","0.5× slow"],["0.75","0.75×"],["1","Normal 1×"],
+       ["1.25","1.25×"],["1.5","1.5×"],["2","2× fast"]]);
+    const footageOrder = selectEditing("Footage assignment",
+      [["script","Scene order"],["reverse","Reverse footage"],["shuffle","Shuffle footage (repeatable)"]]);
+    const saveEdit = document.createElement("button");
+    saveEdit.type = "button";
+    saveEdit.className = "secondary";
+    saveEdit.textContent = "Save editing controls";
+    saveEdit.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions"].includes(project.status);
+    const editStatus = document.createElement("p");
+    editStatus.className = "muted";
+    editPanel.append(saveEdit,editStatus);
+    visualBox.append(editPanel);
+    request("GET","/api/creator/projects/" + project.id + "/edit/options")
+      .then(data => {
+        if(selected !== project.id) return;
+        outputFormat.value = data.options.format;
+        fitMode.value = data.options.fit;
+        footageSpeed.value = String(data.options.speed);
+        footageOrder.value = data.options.order;
+      })
+      .catch(err => {if(selected === project.id) editStatus.textContent=err.message;});
+    saveEdit.onclick=async()=>{
+      saveEdit.disabled=true;
+      try{
+        await request("PUT","/api/creator/projects/" + project.id + "/edit/options",{
+          format:outputFormat.value,fit:fitMode.value,
+          speed:Number(footageSpeed.value),order:footageOrder.value
+        });
+        say("Editing settings saved. The next render uses the selected format and footage controls.");
+        openProject(project.id);
+      }catch(err){say(err.message);saveEdit.disabled=false;}
+    };
     const renderButton = document.createElement("button");
     renderButton.type = "button";
     renderButton.textContent = "Render complete video";
