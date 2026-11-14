@@ -674,20 +674,42 @@
     autoTitle.textContent="Automatic topic-to-video production";
     const autoDesc=document.createElement("p");
     autoDesc.className="muted";
-    autoDesc.textContent="Automatically run script, narration, stock footage, music, captions and final MP4 rendering. Review the video before publishing. Existing completed stages are reused.";
+    autoDesc.textContent="Automatically run the video pipeline with your chosen visual source, narration, music, captions and final MP4 rendering. Review before publishing.";
+    const visualModeLabel=document.createElement("label");
+    visualModeLabel.textContent="Visual source ";
+    const visualMode=document.createElement("select");
+    for(const [value,label] of [
+      ["stock","Stock footage · Pexels / Pixabay / Coverr"],
+      ["ai","AI-generated visuals · local SD-Turbo images + cinematic motion"]
+    ]){
+      const option=document.createElement("option");
+      option.value=value;option.textContent=label;
+      visualMode.append(option);
+    }
+    visualModeLabel.append(visualMode);
+    const visualModeNote=document.createElement("p");
+    visualModeNote.className="muted";
     const stockApproval=document.createElement("label");
     const autoStock=document.createElement("input");
     autoStock.type="checkbox";
-    stockApproval.append(autoStock,document.createTextNode(" Approve free stock-footage downloads for missing scenes"));
-    const autoImageLabel=document.createElement("label");
-    const autoImages=document.createElement("input");
-    autoImages.type="checkbox";
-    autoImageLabel.append(autoImages,document.createTextNode(" Generate AI image scenes for missing footage (local SD-Turbo fallback)"));
+    stockApproval.append(autoStock,document.createTextNode(
+      " Approve free stock-footage downloads for missing scenes"));
     const autoImageDownloadLabel=document.createElement("label");
     const autoImageDownload=document.createElement("input");
     autoImageDownload.type="checkbox";
-    autoImageDownloadLabel.append(autoImageDownload,
-      document.createTextNode(" Allow first-use SD-Turbo model download if image fallback is enabled"));
+    autoImageDownloadLabel.append(autoImageDownload,document.createTextNode(
+      " Allow initial local SD-Turbo model download (only required once)"));
+    function applyVisualMode(){
+      const ai = visualMode.value==="ai";
+      stockApproval.hidden=ai;
+      autoImageDownloadLabel.hidden=!ai;
+      visualModeNote.textContent=ai
+        ? "No stock API calls. Generates fresh AI images for every scene, including opening and ending, and animates them into MP4 clips. This is not neural text-to-video."
+        : "Uses your configured Pexels, Pixabay or Coverr key to fetch footage. Does not generate AI images.";
+      if(ai)autoStock.checked=false;
+    }
+    visualMode.onchange=applyVisualMode;
+    applyVisualMode();
     const alignLabel=document.createElement("label");
     const autoAlign=document.createElement("input");
     autoAlign.type="checkbox";
@@ -715,7 +737,7 @@
       "sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
     const autoMessage=document.createElement("p");
     autoMessage.className="muted";
-    autoPanel.append(autoTitle,autoDesc,stockApproval,autoImageLabel,autoImageDownloadLabel,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage);
+    autoPanel.append(autoTitle,autoDesc,visualModeLabel,visualModeNote,stockApproval,autoImageDownloadLabel,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage);
     visualBox.append(autoPanel);
     let autoPollTimer=null;
     async function refreshAuto(){
@@ -751,9 +773,9 @@
       startAuto.disabled=true;
       try{
         await request("POST","/api/creator/projects/"+project.id+"/auto/start",{
-          approve_stock_download:autoStock.checked,
-          use_ai_images:autoImages.checked,
-          approve_image_model_download:autoImageDownload.checked,
+          visual_mode:visualMode.value,
+          approve_stock_download:visualMode.value==="stock"&&autoStock.checked,
+          approve_image_model_download:visualMode.value==="ai"&&autoImageDownload.checked,
           align_captions:autoAlign.checked,
           music:autoMusic.value,
           approve_model_download:autoModelConsent.checked
