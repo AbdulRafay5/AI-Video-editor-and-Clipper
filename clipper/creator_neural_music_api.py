@@ -9,7 +9,7 @@ import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 
 from . import creator_render_api as creator, db, local_musicgen as musicgen
 
@@ -86,6 +86,23 @@ def status(pid):
                        "WHERE project_id=?", (pid,))
     report = json.loads(row["report_json"]) if row and row["report_json"] else {}
     return jsonify(status=row["status"] if row else "pending", report=report)
+
+
+@bp.get("/api/creator/projects/<int:pid>/music/neural/audio")
+def listen(pid):
+    if not creator._project(pid):
+        return jsonify(error="Project not found."), 404
+    row = db.query_one("SELECT status, artifact_json FROM creator_stages "
+                       "WHERE project_id=? AND stage='music'", (pid,))
+    if not row or row["status"] != "done" or not row["artifact_json"]:
+        return jsonify(error="Generate neural music first."), 409
+    saved = json.loads(row["artifact_json"])
+    if saved.get("mode") != "musicgen":
+        return jsonify(error="The selected music is not a MusicGen track."), 409
+    source = creator._music(pid)
+    if not source or source["file"].suffix.lower() != ".wav":
+        return jsonify(error="Selected neural music is missing."), 404
+    return send_file(source["file"], mimetype="audio/wav", as_attachment=False)
 
 
 def _generate(pid, options):
