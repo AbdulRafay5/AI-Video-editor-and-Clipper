@@ -17,8 +17,10 @@ MAX_SCENES = 14
 def _state(pid, status, report):
     with db.get_db() as conn:
         conn.execute(
-            "UPDATE creator_image_jobs SET status=?,report_json=?,updated_at=CURRENT_TIMESTAMP "
-            "WHERE project_id=?", (status, json.dumps(report), pid))
+            "INSERT INTO creator_image_jobs(project_id,status,report_json) VALUES (?,?,?) "
+            "ON CONFLICT(project_id) DO UPDATE SET status=excluded.status, "
+            "report_json=excluded.report_json,updated_at=CURRENT_TIMESTAMP",
+            (pid, status, json.dumps(report)))
 
 
 def _generate(pid, allow_download):
