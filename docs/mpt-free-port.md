@@ -159,6 +159,30 @@ This is a close animation adaptation, **not identical pixel-for-pixel
 MoviePy composition**. Animated subtitles are rendered into a new export
 file, leaving the original clipper and upstream video project cache intact.
 
+## Advanced non-destructive editing controls
+
+Creator Studio can now configure output aspect ratio (`portrait 720×1280`,
+`landscape 1280×720`, `square 1080×1080`), footage fit (`cover` centre
+crop or `contain` with black bars), footage playback speed (`0.5×`–`2×`)
+and source assignment order (`script`, `reverse`, deterministic `shuffle`).
+Preferences persist in `creator_edit_settings` and default to the original
+Creator Studio values for all existing projects.
+
+The original MIT-licensed MoneyPrinterTurbo revision renderer is not
+modified. Its render settings already support custom canvas sizes. For
+letterboxing/speed, `clipper/creator_edit_api.py` prepares safe local
+intermediate video-only files with FFmpeg. Subsequent revisions can reuse
+intermediates and the renderer's verified scene cache. Changes to editing
+preferences invalidate the current Creator Studio render stage but preserve
+narration, music, visuals, and all prior immutable revisions.
+
+**Important semantics:** footage order changes which source *video* appears
+with each scene; it does not reorder the spoken script or scene audio.
+Speed applies to footage, looping/trimming as necessary to keep narration
+length unchanged. Existing clipper APIs, stored clip projects and their
+render paths are unaffected. Frame crop is centre-aligned; custom pan and
+per-scene crop-position keyframes remain future work.
+
 ## Still missing compared with MoneyPrinterTurbo
 
 - Visual analysis of downloaded footage and more advanced semantic per-scene selection
