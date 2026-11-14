@@ -196,7 +196,7 @@ def _run(pid, requested):
                              "WHERE project_id=? AND stage='render'", (pid,))
             conn.execute("UPDATE creator_projects SET status=?, error=?, "
                          "updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                         ("narration_ready" if creator._narration_exists(pid) else "script_ready",
+                         ("narration_ready" if bool(db.query_one("SELECT 1 FROM creator_stages WHERE project_id=? AND stage='narration' AND status='done'", (pid,))) else "script_ready",
                           ("Some shots couldn't be sourced; see the footage report." if errors else None), pid))
             conn.execute("INSERT OR REPLACE INTO creator_stock_jobs(project_id,status,report_json) "
                          "VALUES (?,?,?)",
