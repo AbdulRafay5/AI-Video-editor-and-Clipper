@@ -133,7 +133,7 @@ def generate_narration(pid):
         conn.execute("UPDATE creator_stages SET status='running', error=NULL, "
                      "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='narration'", (pid,))
         conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
-                     "WHERE project_id=? AND stage IN ('captions','music','render')", (pid,))
+                     "WHERE project_id=? AND stage IN ('captions','render')", (pid,))
     _executor.submit(_run, pid, script, engine)
     return jsonify(ok=True, status="generating_narration"), 202
 
