@@ -53,6 +53,71 @@ class PromptTests(unittest.TestCase):
         self.assertLessEqual(float(np.max(np.abs(track))), 0.95)
         self.assertAlmostEqual(float(track[-1]), 0, delta=0.005)
 
+    def test_neural_model_pipeline_produces_real_wav_from_fake_weights(self):
+        """Exercise the Transformers call and PCM output without downloading weights."""
+        import sys
+        import numpy as np
+        class FakeTensor:
+            def __init__(self, array):
+                self.array = array
+                self.ndim = array.ndim
+            def mean(self, dim=0):
+                return FakeTensor(self.array.mean(axis=dim))
+            def float(self):
+                return self
+            def cpu(self):
+                return self
+            def numpy(self):
+                return self.array
+        class FakeInput:
+            def to(self, device):
+                return self
+        class FakeProcessor:
+            @classmethod
+            def from_pretrained(cls, model, **kwargs):
+                self.assertEqual(model, musicgen.MODEL_ID)
+                self.assertTrue(kwargs["local_files_only"])
+                return cls()
+            def __call__(self, **kwargs):
+                self.assertIn("ambient", kwargs["text"][0])
+                return {"input_ids": FakeInput()}
+        class FakeModel:
+            config = types.SimpleNamespace(
+                audio_encoder=types.SimpleNamespace(sampling_rate=16000))
+            @classmethod
+            def from_pretrained(cls, model, **kwargs):
+                self.assertTrue(kwargs["local_files_only"])
+                return cls()
+            def to(self, device):
+                self.assertEqual(device, "cpu")
+                return self
+            def eval(self):
+                return self
+            def generate(self, **kwargs):
+                self.assertEqual(kwargs["max_new_tokens"], 250)
+                self.assertAlmostEqual(kwargs["guidance_scale"], 3.0)
+                values = np.sin(np.linspace(0, 40*np.pi, 16000*5, dtype=np.float32))
+                return [FakeTensor(values.reshape(1, -1))]
+        fake_torch = types.SimpleNamespace(
+            cuda=types.SimpleNamespace(is_available=lambda: False),
+            inference_mode=contextlib.nullcontext)
+        fake_transformers = types.SimpleNamespace(
+            AutoProcessor=FakeProcessor,
+            MusicgenForConditionalGeneration=FakeModel)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "neural.wav"
+            with patch.object(musicgen, "dependencies_ready", return_value=True), \
+                 patch.dict(sys.modules, {"torch": fake_torch,
+                                          "transformers": fake_transformers}):
+                details = musicgen.generate(
+                    path, "ambient instrumental music without vocals", 6,
+                    allow_download=False, sample_seconds=5)
+            self.assertEqual(details["model"], musicgen.MODEL_ID)
+            self.assertTrue(details["looped"])
+            with wave.open(str(path), "rb") as audio:
+                self.assertEqual(audio.getframerate(), 16000)
+                self.assertEqual(audio.getnframes(), 16000*6)
+
     def test_optional_dependency_check_does_not_download(self):
         with patch.object(musicgen, "dependencies_ready", return_value=False):
             with self.assertRaisesRegex(musicgen.MusicGenError, "optional local MusicGen"):
