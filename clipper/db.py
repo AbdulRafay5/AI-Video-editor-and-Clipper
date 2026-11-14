@@ -183,6 +183,16 @@ def init_db():
             "error='Narration interrupted by app restart.' "
             "WHERE stage='narration' AND status='running'"
         )
+        conn.execute(
+            "UPDATE creator_projects SET status='narration_ready', "
+            "error='Rendering interrupted by app restart; render again.' "
+            "WHERE status='rendering'"
+        )
+        conn.execute(
+            "UPDATE creator_stages SET status='failed', "
+            "error='Rendering interrupted by app restart.' "
+            "WHERE stage='render' AND status='running'"
+        )
 
 
 def query(sql, params=()):
