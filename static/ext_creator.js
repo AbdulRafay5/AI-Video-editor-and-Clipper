@@ -244,7 +244,7 @@
     const stockDescription = document.createElement("p");
     stockDescription.className = "muted";
     stockDescription.textContent =
-      "Uses your scene descriptions and a free Pixabay API key. Fills up to six missing scenes per request; existing footage is kept. Matches are based on search metadata, not visual inspection, so review them before publishing.";
+      "Searches Pixabay, Pexels and Coverr using configured free API keys. Fills up to six missing scenes per request; existing footage is preserved. Review matches and usage rights before publishing.";
     const stockButton = document.createElement("button");
     stockButton.type = "button";
     stockButton.textContent = "Find footage for missing scenes";
@@ -303,6 +303,25 @@
     srt.textContent = "Download approximate SRT captions";
     srt.setAttribute("download", "creator_" + project.id + ".srt");
     finishBox.append(finishTitle,timingNote,subLabel,fadeLabel,saveFinish,finishState,document.createTextNode(" "),srt);
+    const alignButton = document.createElement("button");
+    alignButton.type = "button";
+    alignButton.className = "secondary";
+    alignButton.textContent = "Align captions using local Whisper";
+    alignButton.disabled = !["done"].includes(project.stages.narration?.status) ||
+      ["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions"].includes(project.status);
+    alignButton.onclick = async () => {
+      if(!confirm("Download/use free local Whisper tiny.en model if needed? Caption alignment can take CPU time.")) return;
+      alignButton.disabled = true;
+      try {
+        await request("POST", "/api/creator/projects/" + project.id + "/captions/align");
+        say("Whisper is aligning spoken words to your narration locally.");
+        openProject(project.id);
+      } catch(err) {say(err.message);alignButton.disabled=false;}
+    };
+    finishBox.append(alignButton);
+    if(project.status === "aligning_captions") timingNote.textContent =
+      "Whisper is measuring word timings. Reload this project when alignment finishes.";
+
     visualBox.append(finishBox);
     request("GET", "/api/creator/projects/" + project.id + "/captions/options").then(result => {
       if(selected !== project.id) return;
@@ -429,11 +448,11 @@
         };
         wrap.append(label, file, upload, state);
         const source = sources[slot];
-        if (source && source.provider === "pixabay") {
+        if (source && ["pixabay","pexels","coverr"].includes(source.provider)) {
           const note = document.createElement("span");
-          note.textContent = "Pixabay · " + (source.query || "stock video");
+          note.textContent = source.provider + " · " + (source.query || "stock video");
           wrap.append(note);
-          if (typeof source.source_page === "string" && /^https:\/\/(?:[a-z0-9-]+\.)?pixabay\.com\//i.test(source.source_page)) {
+          if (typeof source.source_page === "string" && /^https:\/\/(?:[a-z0-9-]+\.)?(?:pixabay\.com|pexels\.com|coverr\.co)\//i.test(source.source_page)) {
             const link = document.createElement("a");
             link.href = source.source_page;
             link.target = "_blank";
