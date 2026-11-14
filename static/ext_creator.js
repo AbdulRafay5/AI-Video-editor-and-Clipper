@@ -245,6 +245,24 @@
     renderMessage.className = "muted";
     visualBox.append(renderButton, renderMessage);
     container.append(visualBox);
+    if (project.status === "rendering") {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "secondary";
+      cancel.textContent = "Cancel render";
+      cancel.onclick = async () => {
+        cancel.disabled = true;
+        try {
+          await request("POST", "/api/creator/projects/" + project.id + "/render/cancel");
+          say("Cancellation requested. The current FFmpeg stage will stop.");
+        } catch(err) { say(err.message); cancel.disabled=false; }
+      };
+      visualBox.append(cancel);
+      request("GET", "/api/creator/projects/" + project.id + "/render")
+        .then(data => { if (selected === project.id) renderMessage.textContent =
+          data.completed_stages + " rendering stages completed. You can leave this screen running."; })
+        .catch(() => {});
+    }
     const slots = ["hook", ...script.scenes.map((_, index) => "scene_" + index), "closing"];
     function drawSlots(clips) {
       visualList.replaceChildren();
