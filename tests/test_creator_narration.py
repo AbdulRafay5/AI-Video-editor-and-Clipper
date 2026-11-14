@@ -57,7 +57,7 @@ class NarrationTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_cannot_generate_without_script(self):
-        with patch.object(local_narration, "backend", return_value={
+        with patch.object(local_narration, "select_backend", return_value={
             "name": "test", "ready": True, "voice": "fake",
             "description": "Test voice"}):
             r = self.client.post(f"/api/creator/projects/{self.pid}/narration/generate")
