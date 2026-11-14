@@ -41,8 +41,11 @@ def validate(payload):
     if type(stock) is not bool or type(aligned) is not bool or type(music_download) is not bool or type(images) is not bool or type(image_download) is not bool:
         raise AutoError("Download approval and alignment must be true or false.")
     mode = payload.get("visual_mode")
-    if mode is not None and mode not in ("stock", "ai"):
-        raise AutoError("Visual source must be stock footage or AI-generated visuals.")
+    if mode is not None and mode not in ("stock", "ai", "neural_video"):
+        raise AutoError("Visual source must be stock, AI images or true neural video.")
+    if mode == "neural_video":
+        if stock or images:
+            raise AutoError("Neural video mode cannot use stock downloads or image animation.")
     if mode == "ai":
         if stock:
             raise AutoError("AI visual mode does not allow stock footage downloads.")
@@ -160,7 +163,26 @@ def _automate(pid, options):
         def missing_slots():
             return [slot for slot in slots if not render._visuals(pid).get(slot)]
 
-        if options.get("visual_mode") == "ai":
+        if options.get("visual_mode") == "neural_video":
+            _invoke(client, "POST", base + "/neural-video/generate", {
+                "approve_model_download": options["approve_image_model_download"]})
+            # True diffusion inference is much slower than FFmpeg still-image animation.
+            deadline = time.monotonic() + 21600
+            while time.monotonic() < deadline:
+                job = db.query_one(
+                    "SELECT status,report_json FROM creator_video_jobs WHERE project_id=?",
+                    (pid,))
+                if job and job["status"] in ("done", "blocked", "interrupted"):
+                    break
+                time.sleep(1)
+            else:
+                raise AutoError("Neural video exceeded the 6-hour project limit.")
+            if job["status"] != "done":
+                detail = json.loads(job["report_json"] or "{}")
+                err = next(iter(detail.get("errors", {}).values()),
+                           "Neural video generation failed.")
+                raise AutoError(str(err)[:280])
+        elif options.get("visual_mode") == "ai":
             # Explicit AI mode regenerates *every* script slot, even if stock
             # or manually uploaded footage already exists in this project.
             # The image worker swaps references only after all scenes succeed.
