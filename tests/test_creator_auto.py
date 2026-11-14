@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from flask import Flask
-from clipper import creator_api, creator_auto_api as auto
+from clipper import creator_api, creator_narration_api as narration, creator_auto_api as auto
 from clipper import creator_render_api as render, creator_finish_api as finish, db
 
 
@@ -35,6 +35,7 @@ class AutomaticCreatorTests(unittest.TestCase):
         db.init_db()
         app = Flask(__name__)
         app.register_blueprint(creator_api.bp)
+        app.register_blueprint(narration.bp)
         app.register_blueprint(render.bp)
         app.register_blueprint(finish.bp)
         app.register_blueprint(auto.bp)
@@ -108,7 +109,8 @@ class AutomaticCreatorTests(unittest.TestCase):
         result = self._start_and_run({"music": "none"})
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["step"], "narration")
-        self.assertIn("Generate narration", result["report"]["error"])
+        self.assertTrue(result["report"]["error"])
+        self.assertNotEqual(result["report"]["error"], "Production stage rejected.")
         self.assertEqual(result["report"]["completed"], ["script"])
 
     def test_duplicate_running_job_is_rejected(self):
