@@ -69,6 +69,27 @@ class NeuralVoiceTests(unittest.TestCase):
             self.assertTrue(target.is_file())
             self.assertFalse(target.with_suffix(".mp3").exists())
 
+    def test_edge_stream_captures_real_word_boundaries(self):
+        import asyncio
+        import sys
+        import types
+        async def events():
+            yield {"type": "audio", "data": b"x" * 256}
+            yield {"type": "WordBoundary", "offset": 1500000,
+                   "duration": 3500000, "text": "Hello"}
+            yield {"type": "WordBoundary", "offset": 5000000,
+                   "duration": 4000000, "text": "world"}
+        voice = types.SimpleNamespace(stream=lambda: events())
+        fake = types.SimpleNamespace(Communicate=lambda *args, **kwargs: voice)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "edge.mp3"
+            with patch.dict(sys.modules, {"edge_tts": fake}):
+                words = asyncio.run(neural._edge_stream("Hello world", "en-GB-SoniaNeural", path))
+            self.assertEqual(len(words), 2)
+            self.assertAlmostEqual(words[0]["start"], 0.15)
+            self.assertAlmostEqual(words[0]["end"], 0.5)
+            self.assertEqual(path.stat().st_size, 256)
+
     def test_invalid_voice_never_sends_request(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch.object(neural, "_kokoro_request") as send:
