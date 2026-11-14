@@ -96,6 +96,81 @@ def _generate(pid, allow_download):
                     "WHERE id=? AND status='generating_images'", (ready, pid))
 
 
+def _generate_all(pid, allow_download):
+    """Build all AI scenes off to the side; switch selections atomically.
+
+    Existing clips stay untouched if any neural image or FFmpeg step fails.
+    A successful run replaces the visual *references* for all script slots,
+    preserving original media files for manual recovery.
+    """
+    report = {"generated": {}, "errors": {}, "model": imagegen.MODEL, "mode": "ai"}
+    created = []
+    try:
+        project = creator._project(pid)
+        if not project or not project["script_json"]:
+            raise imagegen.ImageGenerationError("Create a script first.")
+        script = json.loads(project["script_json"])
+        slots = creator._slots(script)
+        if len(slots) > MAX_SCENES:
+            raise imagegen.ImageGenerationError("Too many scenes to generate in one job.")
+        output_dir = creator._root(pid) / "visuals"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        replacements = {}
+        sources = {}
+        for slot in slots:
+            prompt = imagegen.image_prompt(slot, script)
+            name = "clip_" + uuid.uuid4().hex
+            picture = output_dir / (name + ".png")
+            movie = output_dir / (name + ".mp4")
+            created.extend((picture, movie))
+            result = imagegen.generate_image(
+                prompt, picture, allow_download=allow_download)
+            imagegen.animate_still(picture, movie, seconds=5)
+            replacements[slot] = movie.name
+            sources[slot] = {"provider": "local-sd-turbo", "prompt": prompt,
+                             "image": picture.name, "model": result["model"]}
+            report["generated"][slot] = movie.name
+            _state(pid, "running", report)
+        with creator._upload_lock:
+            with db.get_db() as conn:
+                # The script must remain unchanged while this job is active.
+                row = conn.execute(
+                    "SELECT artifact_json FROM creator_stages WHERE project_id=? "
+                    "AND stage='visuals'", (pid,)).fetchone()
+                old = json.loads(row["artifact_json"]) if row and row["artifact_json"] else {}
+                # Scope to currently valid script slots; never let stale
+                # selections from an old script sneak into the new manifest.
+                conn.execute(
+                    "UPDATE creator_stages SET status='done',artifact_json=?,"
+                    "error=NULL,updated_at=CURRENT_TIMESTAMP "
+                    "WHERE project_id=? AND stage='visuals'",
+                    (json.dumps({"clips": replacements, "sources": sources}), pid))
+                conn.execute(
+                    "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
+                    "WHERE project_id=? AND stage='render'", (pid,))
+        report["remaining"] = []
+        _state(pid, "done", report)
+    except Exception as exc:
+        for file in created:
+            file.unlink(missing_ok=True)
+        log.exception("AI-only image generation failed for Creator %s", pid)
+        report["generated"] = {}
+        report["errors"]["general"] = (
+            str(exc)[:250] if isinstance(exc, (imagegen.ImageGenerationError, ValueError))
+            else "AI image generation failed; see application logs.")
+        _state(pid, "blocked", report)
+    finally:
+        with creator._upload_lock:
+            with db.get_db() as conn:
+                previous = conn.execute(
+                    "SELECT status FROM creator_stages WHERE project_id=? AND stage='narration'",
+                    (pid,)).fetchone()
+                ready = "narration_ready" if previous and previous["status"] == "done" else "script_ready"
+                conn.execute(
+                    "UPDATE creator_projects SET status=?,updated_at=CURRENT_TIMESTAMP "
+                    "WHERE id=? AND status='generating_images'", (ready, pid))
+
+
 @bp.get("/api/creator/images/capabilities")
 def capabilities():
     return jsonify(model=imagegen.MODEL, installed=imagegen.dependencies_ready(),
@@ -115,9 +190,10 @@ def image_status(pid):
 @bp.post("/api/creator/projects/<int:pid>/images/fill")
 def fill(pid):
     payload = request.get_json(silent=True)
-    if not isinstance(payload, dict) or set(payload) != {"approve_model_download"} or \
-            type(payload.get("approve_model_download")) is not bool:
-        return jsonify(error="Provide explicit model-download permission (true or false)."), 400
+    if not isinstance(payload, dict) or set(payload) - {"approve_model_download", "replace_existing"} or \
+            type(payload.get("approve_model_download")) is not bool or \
+            type(payload.get("replace_existing", False)) is not bool:
+        return jsonify(error="Provide valid model-download permission and AI-only mode."), 400
     if not imagegen.dependencies_ready():
         return jsonify(error="Install requirements-images.txt for local image creation."), 503
     with creator._upload_lock:
@@ -131,7 +207,7 @@ def fill(pid):
             if not project["script_json"]:
                 return jsonify(error="Generate a script first."), 409
             script = json.loads(project["script_json"])
-            if all(creator._visuals(pid).get(slot) for slot in creator._slots(script)):
+            if not payload.get("replace_existing", False) and all(creator._visuals(pid).get(slot) for slot in creator._slots(script)):
                 return jsonify(error="All scenes already have footage."), 409
             conn.execute(
                 "UPDATE creator_projects SET status='generating_images',error=NULL,"
@@ -140,5 +216,6 @@ def fill(pid):
                 "INSERT INTO creator_image_jobs(project_id,status,report_json) "
                 "VALUES (?,'running','{}') ON CONFLICT(project_id) DO UPDATE SET "
                 "status='running',report_json='{}',updated_at=CURRENT_TIMESTAMP", (pid,))
-        _executor.submit(_generate, pid, payload["approve_model_download"])
+        worker = _generate_all if payload.get("replace_existing", False) else _generate
+        _executor.submit(worker, pid, payload["approve_model_download"])
     return jsonify(status="generating_images", ok=True), 202
