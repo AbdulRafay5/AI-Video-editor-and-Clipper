@@ -23,7 +23,7 @@
     <div class="actions"><button type="button" id="broll-render" disabled>Render selected cutaways</button></div>
     <p id="broll-render-status" class="msg" role="status"></p>
     <div id="broll-download"></div>
-    <p class="muted">B-roll overlays the picture only: original speech and subtitles remain. Recheck campaign rules before posting.</p>`;
+    <p class="muted">B-roll preserves the original speech. It can cover burned-in captions while visible; caption layering will be improved later. Recheck campaign rules before posting.</p>`;
   panel.append(section);
   const $ = id => document.getElementById(id);
   const message = msg => { $("broll-message").textContent = msg; };
