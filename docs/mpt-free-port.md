@@ -252,14 +252,36 @@ requires its optional dependencies and explicit first-use model-download
 permission. Batch scheduling and real Windows hardware QA remain open. The automatic
 music choice is the older free instrumental or an existing selected track.
 
+## Local SD-Turbo AI image scenes
+
+Creator Studio now has an optional free **local image generation** integration
+(`clipper/local_imagegen.py`, `creator_image_api.py`). Diffusers loads
+`stabilityai/sd-turbo` only if explicitly requested; first-use model downloads
+require separate approval. Scene prompts come from saved script visual ideas.
+A 512px generated PNG is converted by FFmpeg into a cinematic 720×1280 MP4
+with a small zoom/pan, which the existing immutable MPT renderer can accept
+as normal prepared footage.
+
+The `creator_auto_api.py` pipeline optionally tries configured free stock
+providers first, then fills only missing slots with local AI image scenes.
+No original uploaded or accepted stock footage is replaced. Jobs persist
+progress and preserve completed scenes after failure or restart. The UI also
+allows requesting image scenes directly, outside the automatic pipeline.
+
+This is **text-to-image plus camera motion**, not true neural text-to-video.
+It has not been tested with real SD-Turbo weights on the user's Windows GPU;
+CI verifies the orchestration with model doubles and **real FFmpeg video
+animation**. SD-Turbo has separate model licensing. Setup and limitations:
+`docs/free-images.md`.
+
 ## Still missing compared with MoneyPrinterTurbo
 
 - Visual analysis of downloaded footage and more advanced semantic per-scene selection
-- Local image synthesis and practical model-tested text-to-video generation
+- Practical model-tested text-to-video generation, plus real-world Windows image-model QA
 - Alignment quality checks, richer subtitle animation and additional scene effects
 - Multi-project batch queues, publish scheduling and social publishing
 - A fully unified editor timeline with reversible B-roll and captions
-- Image-only animated scenes and actual video-conditioned soundtrack analysis
+- Video-conditioned soundtrack analysis and visual-quality checks for animated image scenes
 
 These gaps should be ported or adapted independently behind opt-in paths
 and tested before altering the existing clipper. None of the above missing
