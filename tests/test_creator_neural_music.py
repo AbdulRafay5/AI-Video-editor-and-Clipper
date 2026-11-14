@@ -57,6 +57,7 @@ class PromptTests(unittest.TestCase):
         """Exercise the Transformers call and PCM output without downloading weights."""
         import sys
         import numpy as np
+        testcase = self
         class FakeTensor:
             def __init__(self, array):
                 self.array = array
@@ -75,27 +76,27 @@ class PromptTests(unittest.TestCase):
         class FakeProcessor:
             @classmethod
             def from_pretrained(cls, model, **kwargs):
-                self.assertEqual(model, musicgen.MODEL_ID)
-                self.assertTrue(kwargs["local_files_only"])
+                testcase.assertEqual(model, musicgen.MODEL_ID)
+                testcase.assertTrue(kwargs["local_files_only"])
                 return cls()
             def __call__(self, **kwargs):
-                self.assertIn("ambient", kwargs["text"][0])
+                testcase.assertIn("ambient", kwargs["text"][0])
                 return {"input_ids": FakeInput()}
         class FakeModel:
             config = types.SimpleNamespace(
                 audio_encoder=types.SimpleNamespace(sampling_rate=16000))
             @classmethod
             def from_pretrained(cls, model, **kwargs):
-                self.assertTrue(kwargs["local_files_only"])
+                testcase.assertTrue(kwargs["local_files_only"])
                 return cls()
             def to(self, device):
-                self.assertEqual(device, "cpu")
+                testcase.assertEqual(device, "cpu")
                 return self
             def eval(self):
                 return self
             def generate(self, **kwargs):
-                self.assertEqual(kwargs["max_new_tokens"], 250)
-                self.assertAlmostEqual(kwargs["guidance_scale"], 3.0)
+                testcase.assertEqual(kwargs["max_new_tokens"], 250)
+                testcase.assertAlmostEqual(kwargs["guidance_scale"], 3.0)
                 values = np.sin(np.linspace(0, 40*np.pi, 16000*5, dtype=np.float32))
                 return [FakeTensor(values.reshape(1, -1))]
         fake_torch = types.SimpleNamespace(
@@ -112,11 +113,11 @@ class PromptTests(unittest.TestCase):
                 details = musicgen.generate(
                     path, "ambient instrumental music without vocals", 6,
                     allow_download=False, sample_seconds=5)
-            self.assertEqual(details["model"], musicgen.MODEL_ID)
-            self.assertTrue(details["looped"])
+            testcase.assertEqual(details["model"], musicgen.MODEL_ID)
+            testcase.assertTrue(details["looped"])
             with wave.open(str(path), "rb") as audio:
-                self.assertEqual(audio.getframerate(), 16000)
-                self.assertEqual(audio.getnframes(), 16000*6)
+                testcase.assertEqual(audio.getframerate(), 16000)
+                testcase.assertEqual(audio.getnframes(), 16000*6)
 
     def test_optional_dependency_check_does_not_download(self):
         with patch.object(musicgen, "dependencies_ready", return_value=False):
