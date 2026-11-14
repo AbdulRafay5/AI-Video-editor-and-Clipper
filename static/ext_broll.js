@@ -20,7 +20,7 @@
   function currentProjectId() {
     // Project selection is reflected by the layout settings request and project title.
     // Use the page's selectedProject global, if present.
-    const p = typeof selectedProject !== "undefined" ? selectedProject : null;
+    const p = typeof currentProject !== "undefined" ? currentProject : null;
     return p && (p.id || p);
   }
   async function refresh() {
