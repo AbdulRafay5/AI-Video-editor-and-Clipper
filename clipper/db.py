@@ -180,6 +180,16 @@ def init_db():
             "report_json='{\"errors\":{\"general\":\"Interrupted by app restart.\"}}' "
             "WHERE status='running'"
         )
+        conn.execute(
+            "UPDATE creator_projects SET status='narration_ready', "
+            "error='Whisper alignment interrupted by app restart; retry.' "
+            "WHERE status='aligning_captions'"
+        )
+        conn.execute(
+            "UPDATE creator_stages SET status='failed', "
+            "error='Whisper alignment interrupted by app restart.' "
+            "WHERE stage='captions' AND status='running'"
+        )
         # An interrupted local script job can be retried safely after restart.
         conn.execute(
             "UPDATE creator_projects SET status='failed', error='Script generation was interrupted; retry.' "
