@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'clipper/creator_api.py'
+      - 'clipper/creator_auto_api.py'
       - 'clipper/creator_narration_api.py'
       - 'clipper/creator_render_api.py'
       - 'clipper/creator_edit_api.py'
@@ -23,6 +24,7 @@ on:
       - 'requirements-music.txt'
       - 'clipper/db.py'
       - 'tests/test_creator_api.py'
+      - 'tests/test_creator_auto.py'
       - 'tests/test_creator_narration.py'
       - 'tests/test_creator_render.py'
       - 'tests/test_creator_edit.py'
