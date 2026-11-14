@@ -24,6 +24,7 @@ on:
       - 'tests/test_creator_alignment.py'
       - 'tests/test_creator_music.py'
       - 'tests/test_creator_providers.py'
+      - 'tests/test_creator_transitions.py'
       - 'tests/test_creator_stock.py'
       - 'tests/test_neural_narration.py'
       - '.github/workflows/creator-tests.yml'
