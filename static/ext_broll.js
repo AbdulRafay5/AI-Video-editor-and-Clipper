@@ -58,6 +58,10 @@
       if (!data.items.length) list.textContent = "No B-roll added to this project yet.";
     } catch (e) { message(e.message); }
   }
+  // Switching between already-open projects does not change the panel's CSS class.
+  document.addEventListener("click", event => {
+    if (event.target.closest(".project-row")) setTimeout(refresh, 0);
+  });
   $("broll-refresh").addEventListener("click", refresh);
   $("broll-add").addEventListener("click", async () => {
     const pid = currentProjectId();
