@@ -260,6 +260,10 @@ def _manifest(pid, project):
     artifact = _narration(pid)
     if len(artifact["segments"]) != len(slots):
         raise ProjectError("Scene count changed after narration. Regenerate narration.")
+    from . import creator_edit_api as editor
+    edit = editor.options(pid)
+    mapped = editor.footage_mapping(slots, pid, edit["order"])
+    width, height = editor.FORMATS[edit["format"]]
     scenes = []
     for index, slot in enumerate(slots):
         segment = artifact["segments"][index]
@@ -272,7 +276,8 @@ def _manifest(pid, project):
             raise ProjectError("Narration audio missing; regenerate it.")
         scenes.append({
             "id": slot,
-            "footage": str(_file_for_slot(pid, clips[slot])),
+            "footage": str(editor.prepare_footage(
+                pid, _file_for_slot(pid, clips[mapped[slot]]), slot, edit)),
             "audio": str(audio),
             "narration": segment["text"],
             "duration": float(segment["duration"]),
@@ -281,7 +286,7 @@ def _manifest(pid, project):
     return {
         "project_id": f"creator_{pid}", "scenes": scenes,
         "bgm": str(music["file"]) if music else None,
-        "settings": {"width": 720, "height": 1280, "fps": 30,
+        "settings": {"width": width, "height": height, "fps": 30,
                      "narration_volume": 1.0, "bgm_volume": 0.15},
     }
 
