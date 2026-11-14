@@ -616,6 +616,58 @@
         neuralStatus.textContent="Last neural soundtrack generated: "+data.report.duration+"s using "+data.report.device+
           ". "+(data.report.looped?"Short neural motif is crossfaded to fit the video.":"");
     }).catch(()=>{});
+    const imagePanel=document.createElement("section");
+    imagePanel.className="card";
+    const imageTitle=document.createElement("h4");
+    imageTitle.textContent="Generate AI image scenes locally";
+    const imageDetails=document.createElement("p");
+    imageDetails.className="muted";
+    imageDetails.textContent="Use optional SD-Turbo on your PC to generate 512px scene images. FFmpeg turns them into cinematic moving shots. Existing uploaded/stock clips are never replaced. This is AI image animation, not text-to-video.";
+    const imageConsentLabel=document.createElement("label");
+    const imageConsent=document.createElement("input");
+    imageConsent.type="checkbox";
+    imageConsentLabel.append(imageConsent,document.createTextNode(" Allow first-time download of the local SD-Turbo image model"));
+    const imageGenerate=document.createElement("button");
+    imageGenerate.type="button";
+    imageGenerate.className="secondary";
+    imageGenerate.textContent="Generate missing scenes as AI images";
+    imageGenerate.disabled=["generating_script","generating_narration","rendering",
+      "sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
+    const imageNote=document.createElement("p");
+    imageNote.className="muted";
+    imagePanel.append(imageTitle,imageDetails,imageConsentLabel,imageGenerate,imageNote);
+    visualBox.append(imagePanel);
+    async function refreshImages(){
+      try{
+        const [cap,state]=await Promise.all([
+          request("GET","/api/creator/images/capabilities"),
+          request("GET","/api/creator/projects/"+project.id+"/images")]);
+        if(selected!==project.id)return;
+        if(!cap.installed){
+          imageNote.textContent="Optional image model dependencies are missing. See docs/free-images.md.";
+        }else if(state.status==="running"){
+          imageNote.textContent="Generating missing images on this computer. Completed: "+
+            Object.keys(state.report?.generated||{}).length;
+        }else if(state.status==="done"){
+          imageNote.textContent="AI image scenes created. Refresh the project to view your footage.";
+        }else if(state.status==="blocked"){
+          imageNote.textContent="Image fallback stopped: "+
+            Object.values(state.report?.errors||{})[0]+". Previous scene clips are preserved.";
+        }
+      }catch(err){if(selected===project.id)imageNote.textContent=err.message;}
+    }
+    refreshImages();
+    imageGenerate.onclick=async()=>{
+      if(!confirm("Generate AI images locally for missing scene footage? This can use considerable RAM, VRAM and disk space."))return;
+      imageGenerate.disabled=true;
+      try{
+        await request("POST","/api/creator/projects/"+project.id+"/images/fill",{
+          approve_model_download:imageConsent.checked
+        });
+        say("Local image generation started. Refresh this project for progress.");
+        await refreshImages();
+      }catch(err){imageNote.textContent=err.message;imageGenerate.disabled=false;}
+    };
     const autoPanel = document.createElement("section");
     autoPanel.className = "card";
     const autoTitle=document.createElement("h4");
@@ -627,6 +679,15 @@
     const autoStock=document.createElement("input");
     autoStock.type="checkbox";
     stockApproval.append(autoStock,document.createTextNode(" Approve free stock-footage downloads for missing scenes"));
+    const autoImageLabel=document.createElement("label");
+    const autoImages=document.createElement("input");
+    autoImages.type="checkbox";
+    autoImageLabel.append(autoImages,document.createTextNode(" Generate AI image scenes for missing footage (local SD-Turbo fallback)"));
+    const autoImageDownloadLabel=document.createElement("label");
+    const autoImageDownload=document.createElement("input");
+    autoImageDownload.type="checkbox";
+    autoImageDownloadLabel.append(autoImageDownload,
+      document.createTextNode(" Allow first-use SD-Turbo model download if image fallback is enabled"));
     const alignLabel=document.createElement("label");
     const autoAlign=document.createElement("input");
     autoAlign.type="checkbox";
@@ -654,7 +715,7 @@
       "sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
     const autoMessage=document.createElement("p");
     autoMessage.className="muted";
-    autoPanel.append(autoTitle,autoDesc,stockApproval,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage);
+    autoPanel.append(autoTitle,autoDesc,stockApproval,autoImageLabel,autoImageDownloadLabel,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage);
     visualBox.append(autoPanel);
     let autoPollTimer=null;
     async function refreshAuto(){
@@ -691,6 +752,8 @@
       try{
         await request("POST","/api/creator/projects/"+project.id+"/auto/start",{
           approve_stock_download:autoStock.checked,
+          use_ai_images:autoImages.checked,
+          approve_image_model_download:autoImageDownload.checked,
           align_captions:autoAlign.checked,
           music:autoMusic.value,
           approve_model_download:autoModelConsent.checked
