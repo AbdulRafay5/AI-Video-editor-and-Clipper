@@ -95,6 +95,21 @@ def project_captions(pid):
         if clean:
             return cap.build_captions([{"words": clean}], max_words=5,
                                       max_chars=32, max_duration=3.5), "whisper"
+    # Edge neural TTS emits real word-boundary events during narration.
+    edge_words = artifact.get("aligned_words")
+    if artifact.get("word_timing_source") == "edge" and isinstance(edge_words, list) and edge_words:
+        clean = []
+        for w in edge_words:
+            try:
+                start, end = float(w["start"]), float(w["end"])
+                word = str(w["word"]).strip()
+            except (KeyError, ValueError, TypeError):
+                continue
+            if word and 0 <= start < end:
+                clean.append({"word": word[:100], "start": start, "end": end})
+        if clean:
+            return cap.build_captions([{"words": clean}], max_words=5,
+                                      max_chars=32, max_duration=3.5), "edge"
     return timed_captions(artifact), "estimated"
 
 
