@@ -157,7 +157,7 @@ a background generation endpoint.
   scene descriptions; custom text can override this.
 - The target length matches measured narration duration where available,
   otherwise the video's planned duration, bounded to 6–180 seconds.
-- MusicGen produces an **8-second neural sample**, then the app crossfades
+- MusicGen produces an **8–20-second neural sample**, then the app crossfades
   repetitions into a longer soundtrack and fades the endpoints. This is not
   a unique 180-second neural composition.
 - Downloads occur only when a user explicitly permits an initial Hugging
