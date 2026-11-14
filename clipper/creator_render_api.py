@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -134,6 +135,112 @@ def upload_visual(pid, slot):
             return jsonify(error="Could not save scene footage."), 500
 
 
+def _music(pid):
+    row = db.query_one("SELECT status, artifact_json FROM creator_stages "
+                       "WHERE project_id=? AND stage='music'", (pid,))
+    if row and row["status"] == "done" and row["artifact_json"]:
+        artifact = json.loads(row["artifact_json"])
+        name = artifact.get("filename")
+        if (isinstance(name, str) and name.startswith("music_")
+                and Path(name).name == name):
+            file = _root(pid) / "music" / name
+            if file.is_file():
+                return {"filename": name, "file": file, "duration": artifact.get("duration")}
+    return None
+
+
+def _probe_audio(file):
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise ProjectError("FFprobe is required to validate audio.")
+    try:
+        result = subprocess.run(
+            [ffprobe, "-v", "error", "-show_format", "-show_streams",
+             "-print_format", "json", str(file)],
+            capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise ProjectError("Audio file could not be read.")
+        data = json.loads(result.stdout)
+        if not any(s.get("codec_type") == "audio" for s in data.get("streams", [])):
+            raise ProjectError("The uploaded file has no audio track.")
+        duration = float(data.get("format", {}).get("duration") or 0)
+        if not 0 < duration < 86400:
+            raise ProjectError("Music must be shorter than 24 hours.")
+        return round(duration, 2)
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError) as exc:
+        raise ProjectError("Could not validate the music file.") from exc
+
+
+@bp.get("/api/creator/projects/<int:pid>/music")
+def music_status(pid):
+    if not _project(pid):
+        return jsonify(error="Project not found."), 404
+    item = _music(pid)
+    return jsonify(music=({"filename": item["filename"], "duration": item["duration"]}
+                           if item else None))
+
+
+@bp.post("/api/creator/projects/<int:pid>/music")
+def upload_music(pid):
+    with _upload_lock:
+        project = _project(pid)
+        if not project:
+            return jsonify(error="Project not found."), 404
+        if project["status"] in BUSY:
+            return jsonify(error="Wait until the current production stage finishes."), 409
+        uploaded = request.files.get("audio")
+        if not uploaded or not uploaded.filename:
+            return jsonify(error="Select a local music file."), 400
+        suffix = Path(uploaded.filename).suffix.lower()
+        if suffix not in VALID_AUDIO_EXTENSIONS:
+            return jsonify(error="Upload MP3, WAV, FLAC or AAC audio."), 400
+        folder = _root(pid) / "music"
+        folder.mkdir(parents=True, exist_ok=True)
+        name = "music_" + uuid.uuid4().hex + suffix
+        file = folder / name
+        try:
+            length = 0
+            with file.open("wb") as dst:
+                while chunk := uploaded.stream.read(1024 * 1024):
+                    length += len(chunk)
+                    if length > 30 * 1024 * 1024:
+                        raise ProjectError("Music exceeds the 30MB limit.")
+                    dst.write(chunk)
+            if length < 128:
+                raise ProjectError("Audio file is empty.")
+            duration = _probe_audio(file)
+            with db.get_db() as conn:
+                conn.execute("UPDATE creator_stages SET status='done', artifact_json=?, error=NULL, "
+                             "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='music'",
+                             (json.dumps({"filename": name, "duration": duration}), pid))
+                conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
+                             "WHERE project_id=? AND stage='render'", (pid,))
+            return jsonify(ok=True, duration=duration), 201
+        except ProjectError as exc:
+            file.unlink(missing_ok=True)
+            return jsonify(error=str(exc)), 400
+        except Exception:
+            file.unlink(missing_ok=True)
+            log.exception("Music upload failed")
+            return jsonify(error="Music upload failed."), 500
+
+
+@bp.delete("/api/creator/projects/<int:pid>/music")
+def clear_music(pid):
+    with _upload_lock:
+        project = _project(pid)
+        if not project:
+            return jsonify(error="Project not found."), 404
+        if project["status"] in BUSY:
+            return jsonify(error="Wait for current generation."), 409
+        with db.get_db() as conn:
+            conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
+                         "WHERE project_id=? AND stage='music'", (pid,))
+            conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
+                         "WHERE project_id=? AND stage='render'", (pid,))
+        return jsonify(ok=True)
+
+
 def _manifest(pid, project):
     script = json.loads(project["script_json"])
     clips = _visuals(pid)
@@ -160,8 +267,10 @@ def _manifest(pid, project):
             "narration": segment["text"],
             "duration": float(segment["duration"]),
         })
+    music = _music(pid)
     return {
         "project_id": f"creator_{pid}", "scenes": scenes,
+        "bgm": str(music["file"]) if music else None,
         "settings": {"width": 720, "height": 1280, "fps": 30,
                      "narration_volume": 1.0, "bgm_volume": 0.15},
     }
