@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from flask import Flask
-from clipper import creator_api, creator_narration_api as narration, creator_auto_api as auto
+from clipper import creator_api, creator_narration_api as narration, creator_stock_api as stock, creator_auto_api as auto
 from clipper import creator_neural_music_api as neural, local_musicgen
 from clipper import creator_render_api as render, creator_finish_api as finish, db
 
@@ -37,6 +37,7 @@ class AutomaticCreatorTests(unittest.TestCase):
         app = Flask(__name__)
         app.register_blueprint(creator_api.bp)
         app.register_blueprint(narration.bp)
+        app.register_blueprint(stock.bp)
         app.register_blueprint(neural.bp)
         app.register_blueprint(render.bp)
         app.register_blueprint(finish.bp)
@@ -166,6 +167,64 @@ class AutomaticCreatorTests(unittest.TestCase):
         self.assertEqual(status["status"], "blocked")
         self.assertEqual(status["step"], "footage")
         self.assertIn("Footage download not approved", status["report"]["error"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Real FFmpeg renderer unavailable")
+    def test_topic_only_pipeline_renders_using_offline_stage_doubles(self):
+        """All stage transitions are real; only external AI/stock/TTS are faked."""
+        from clipper import creator_providers
+        original_video = Path(self.temp.name) / "stock_source.mp4"
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                        "-f", "lavfi", "-i", "color=c=yellow:s=128x128:r=10:d=1.5",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(original_video)],
+                       check=True, timeout=40)
+
+        def fake_speech(text, destination, engine):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with wave.open(str(destination), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16000)
+                wav.writeframes(b"\0\0" * 16000)
+            return 1.0
+
+        counter = [0]
+        def fake_stock(provider, query):
+            counter[0] += 1
+            return [{
+                "download_url": f"https://cdn.pixabay.com/video/{counter[0]}.mp4",
+                "source_page": "https://pixabay.com/videos/example/",
+                "creator": "fixture", "id": str(counter[0]),
+                "provider": "pixabay",
+            }]
+
+        with patch.object(creator_api.llm, "status", return_value={
+                "running": True, "installed": True, "message": "Ready"}), \
+             patch.object(creator_api.llm, "chat_json", return_value=(SCRIPT, {})), \
+             patch.object(creator_api._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch.object(narration.local_narration, "select_backend",
+                          return_value={"name": "piper", "voice": "fixture"}), \
+             patch.object(narration.local_narration, "synthesize", side_effect=fake_speech), \
+             patch.object(narration._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch.object(creator_providers, "configured", return_value=["pixabay"]), \
+             patch.object(creator_providers, "search", side_effect=fake_stock), \
+             patch.object(stock, "_download",
+                          side_effect=lambda url,destination,provider: shutil.copyfile(
+                              original_video,destination)), \
+             patch.object(stock._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch.object(render._executor, "submit", side_effect=lambda fn,*a: fn(*a)):
+            result = self._start_and_run({
+                "approve_stock_download": True, "music": "none",
+                "align_captions": False})
+        self.assertEqual(result["status"], "done", result)
+        self.assertEqual(result["step"], "review")
+        self.assertEqual(result["report"]["completed"], [
+            "script", "narration", "footage", "music", "captions", "render"])
+        video = self.client.get(f"/api/creator/projects/{self.pid}/render/file")
+        self.assertEqual(video.status_code, 200)
+        self.assertGreater(len(video.data), 1024)
+        video.close()
+        self.assertEqual(counter[0], 3)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "Real FFmpeg renderer unavailable")
