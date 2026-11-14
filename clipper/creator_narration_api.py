@@ -57,7 +57,19 @@ def _run(pid, script, engine):
         # Timeline comes from the original WAV durations, not assumed word speed.
         offset = 0.0
         timing = []
+        exact_words = []
         for i, (segment, duration) in enumerate(zip(parts, durations)):
+            sidecar = folder / ("part_%02d.words.json" % i)
+            if sidecar.is_file():
+                raw_words = json.loads(sidecar.read_text(encoding="utf-8"))
+                for word in raw_words[:2500]:
+                    start, end = float(word["start"]), float(word["end"])
+                    if 0 <= start < end <= duration + 0.5:
+                        exact_words.append({
+                            "word": str(word["word"])[:100],
+                            "start": round(offset + start, 3),
+                            "end": round(min(offset + end, offset + duration), 3),
+                        })
             timing.append({
                 "kind": segment["kind"], "scene_index": segment.get("scene_index"),
                 "start": round(offset, 3), "end": round(offset + duration, 3),
@@ -68,6 +80,7 @@ def _run(pid, script, engine):
             "engine": engine["name"], "voice": engine["voice"],
             "run_id": run_id, "file": "full.wav",
             "duration": actual_duration, "segments": timing,
+            "aligned_words": exact_words, "word_timing_source": "edge" if exact_words else None,
         }
         with db.get_db() as conn:
             conn.execute(
