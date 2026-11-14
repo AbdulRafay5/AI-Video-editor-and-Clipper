@@ -151,7 +151,7 @@ def set_options(pid):
         if not project:
             return jsonify(error="Project not found."), 404
         if project["status"] in ("generating_script", "generating_narration",
-                                 "rendering", "sourcing_visuals", "aligning_captions"):
+                                 "rendering", "sourcing_visuals", "aligning_captions", "generating_music"):
             return jsonify(error="Wait until the current stage finishes."), 409
         old = conn.execute("SELECT artifact_json FROM creator_stages "
                            "WHERE project_id=? AND stage='captions'", (pid,)).fetchone()
