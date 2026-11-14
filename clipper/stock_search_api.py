@@ -139,7 +139,7 @@ def _parse_pixabay(data):
         choice = choices[0]
         url = choice["url"]
         parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(".pixabay.com"):
+        if not _trusted_pixabay_url(url):
             continue
         result.append({
             "id": hit.get("id"),
@@ -175,13 +175,15 @@ def search_pixabay():
 
 
 def _trusted_pixabay_url(url):
-    parsed = urllib.parse.urlsplit(str(url))
-    host = (parsed.hostname or "").lower()
-    return (parsed.scheme == "https" and parsed.port in (None, 443)
-            and parsed.username is None and parsed.password is None
-            and (host == "pixabay.com" or host.endswith(".pixabay.com"))
-            and len(url) < 2500)
-
+    try:
+        parsed = urllib.parse.urlsplit(str(url))
+        host = (parsed.hostname or "").lower()
+        return (parsed.scheme == "https" and parsed.port in (None, 443)
+                and parsed.username is None and parsed.password is None
+                and (host == "pixabay.com" or host.endswith(".pixabay.com"))
+                and len(url) < 2500)
+    except (ValueError, TypeError):
+        return False
 
 class _PixabayOnlyRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
