@@ -74,7 +74,12 @@ def visuals(pid):
     if not project:
         return jsonify(error="Project not found."), 404
     script = json.loads(project["script_json"]) if project["script_json"] else None
-    return jsonify(slots=_slots(script) if script else [], clips=_visuals(pid))
+    row = db.query_one("SELECT artifact_json FROM creator_stages "
+                       "WHERE project_id=? AND stage='visuals'", (pid,))
+    saved = json.loads(row["artifact_json"]) if row and row["artifact_json"] else {}
+    return jsonify(slots=_slots(script) if script else [],
+                   clips=saved.get("clips", {}),
+                   sources=saved.get("sources", {}))
 
 
 @bp.post("/api/creator/projects/<int:pid>/visuals/<slot>")
