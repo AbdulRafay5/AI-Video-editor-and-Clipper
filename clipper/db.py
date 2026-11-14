@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS creator_stages (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(project_id, stage)
 );
+CREATE TABLE IF NOT EXISTS creator_music_jobs (
+    project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    report_json TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS creator_edit_settings (
     project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
     options_json TEXT NOT NULL,
@@ -194,6 +200,19 @@ def init_db():
             "UPDATE creator_stages SET status='failed', "
             "error='Whisper alignment interrupted by app restart.' "
             "WHERE stage='captions' AND status='running'"
+        )
+        conn.execute(
+            "UPDATE creator_projects SET status=CASE "
+            "WHEN EXISTS(SELECT 1 FROM creator_stages s WHERE s.project_id=creator_projects.id "
+            "AND s.stage='narration' AND s.status='done') THEN 'narration_ready' "
+            "WHEN script_json IS NOT NULL THEN 'script_ready' ELSE 'draft' END, "
+            "error='Local MusicGen interrupted by app restart; retry generation.' "
+            "WHERE status='generating_music'"
+        )
+        conn.execute(
+            "UPDATE creator_music_jobs SET status='failed', "
+            "report_json='{\"error\":\"Interrupted by app restart.\"}', "
+            "updated_at=CURRENT_TIMESTAMP WHERE status='running'"
         )
         # An interrupted local script job can be retried safely after restart.
         conn.execute(
