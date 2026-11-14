@@ -114,13 +114,18 @@ def upload_visual(pid, slot):
             if info["duration"] > 3600:
                 raise ProjectError("One footage file must be shorter than an hour.")
             clips = _visuals(pid)
-            old = clips.get(slot)
             clips[slot] = filename
             stage = "done" if all(clips.get(s) for s in _slots(script)) else "pending"
             with db.get_db() as conn:
+                previous = conn.execute(
+                    "SELECT artifact_json FROM creator_stages "
+                    "WHERE project_id=? AND stage='visuals'", (pid,)).fetchone()
+                artifact = json.loads(previous["artifact_json"]) if previous and previous["artifact_json"] else {}
+                sources = artifact.get("sources", {})
+                sources.pop(slot, None)  # Manual replacement is not Pixabay footage.
                 conn.execute("UPDATE creator_stages SET artifact_json=?, status=?, error=NULL, "
                              "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='visuals'",
-                             (json.dumps({"clips": clips}), stage, pid))
+                             (json.dumps({"clips": clips, "sources": sources}), stage, pid))
                 conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
                              "WHERE project_id=? AND stage='render'", (pid,))
             # Do not remove files used by older immutable render revisions.
