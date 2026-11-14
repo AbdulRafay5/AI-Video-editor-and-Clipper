@@ -110,6 +110,36 @@ def _to_wav(input_file: Path, output_file: Path):
         raise NeuralVoiceError("Could not decode speech audio: " + result.stderr[-220:])
 
 
+async def _edge_stream(text, voice, mp3):
+    """Capture both Edge audio and authentic word boundaries in 100-ns ticks."""
+    import edge_tts
+    word_events = []
+    total = 0
+    with mp3.open("wb") as sink:
+        async for event in edge_tts.Communicate(text, voice).stream():
+            kind = event.get("type")
+            if kind == "audio":
+                content = event.get("data")
+                if not isinstance(content, (bytes, bytearray)):
+                    continue
+                total += len(content)
+                if total > MAX_AUDIO_BYTES:
+                    raise NeuralVoiceError("Edge speech audio exceeded the local size limit.")
+                sink.write(content)
+            elif kind == "WordBoundary":
+                try:
+                    start = float(event["offset"])/10000000
+                    duration = float(event["duration"])/10000000
+                    word = str(event.get("text", "")).strip()
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if len(word_events) < 2500 and word and 0 <= start < start + duration:
+                    word_events.append({"word": word[:100],
+                                        "start": round(start, 3),
+                                        "end": round(start+duration, 3)})
+    return word_events
+
+
 def speak_neural(text: str, destination: Path, selected: dict):
     from .local_narration import wav_duration
     kind = selected["name"]
@@ -138,7 +168,10 @@ def speak_neural(text: str, destination: Path, selected: dict):
             except ImportError as exc:
                 raise NeuralVoiceError("Install edge-tts to use free online Edge voices.") from exc
             try:
-                asyncio.run(edge_tts.Communicate(text, voice).save(str(mp3)))
+                words = asyncio.run(_edge_stream(text, voice, mp3))
+                if words:
+                    destination.with_suffix(".words.json").write_text(
+                        json.dumps(words, ensure_ascii=False), encoding="utf-8")
             except Exception as exc:
                 raise NeuralVoiceError("Edge TTS could not generate audio. Check Internet access and retry.") from exc
         else:
