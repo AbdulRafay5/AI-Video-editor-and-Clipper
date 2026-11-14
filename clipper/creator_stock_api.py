@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, request
 
-from . import creator_render_api as creator, db, stock_cache, stock_search_api as stock, video
+from . import creator_render_api as creator, creator_providers as providers, db, stock_cache, stock_search_api as stock, video
 
 bp = Blueprint("creator_stock", __name__)
 log = logging.getLogger("clipper.creator_stock")
@@ -114,16 +114,16 @@ def _candidates(data):
     return results
 
 
-def _download(url, destination):
-    if not stock._trusted_pixabay_url(url):
+def _download(url, destination, provider="pixabay"):
+    if not providers.allowed_url(provider, url):
         raise ValueError("Stock source failed URL validation.")
-    opener = urllib.request.build_opener(stock._PixabayOnlyRedirects(),
+    opener = urllib.request.build_opener(providers.ProviderOnlyRedirects(provider),
                                          urllib.request.ProxyHandler({}))
     req = urllib.request.Request(url, headers={"User-Agent": "LocalVideoEditor/1.0"})
     written = 0
     try:
         with opener.open(req, timeout=40) as response, destination.open("wb") as out:
-            if not stock._trusted_pixabay_url(response.url):
+            if not providers.allowed_url(provider, response.url):
                 raise ValueError("Unexpected download origin.")
             length = response.headers.get("Content-Length")
             if length and int(length) > MAX_DOWNLOAD_BYTES:
@@ -156,7 +156,12 @@ def _run(pid, requested):
                 continue
             query = query_for(slot, script)
             try:
-                candidates = _search(query)
+                candidates = []
+                for name in providers.configured():
+                    try:
+                        candidates.extend(providers.search(name, query))
+                    except (ValueError, OSError, urllib.error.URLError, TimeoutError):
+                        log.warning("Free provider %s unavailable for scene %s", name, slot)
                 chosen = next((c for c in candidates if c["download_url"] not in seen_urls), None)
                 if chosen is None:
                     errors[slot] = "No matching free footage found; upload a local video."
@@ -166,11 +171,11 @@ def _run(pid, requested):
                 folder.mkdir(parents=True, exist_ok=True)
                 filename = "clip_" + uuid.uuid4().hex + ".mp4"
                 target = folder / filename
-                _download(chosen["download_url"], target)
+                _download(chosen["download_url"], target, chosen.get("provider", "pixabay"))
                 clips[slot] = filename
                 downloaded.append(target)
                 applied[slot] = {
-                    "filename": filename, "provider": "pixabay",
+                    "filename": filename, "provider": chosen.get("provider", "pixabay"),
                     "source_page": chosen["source_page"],
                     "creator": chosen["creator"], "query": query,
                     "asset_id": chosen["id"],
@@ -219,8 +224,8 @@ def auto_fill(pid):
         return jsonify(error="Invalid request."), 400
     if body.get("approve_download") is not True:
         return jsonify(error="Confirm downloading free footage before starting."), 400
-    if not os.environ.get("PIXABAY_API_KEY", "").strip():
-        return jsonify(error="Add a free PIXABAY_API_KEY first."), 503
+    if not providers.configured():
+        return jsonify(error="Configure a free PIXABAY_API_KEY, PEXELS_API_KEY or COVERR_API_KEY first."), 503
     with creator._upload_lock:
         with db.get_db() as conn:
             project = conn.execute("SELECT status, script_json FROM creator_projects "
