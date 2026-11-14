@@ -230,7 +230,9 @@ is missing. Automated stock acquisition requires explicit
 API key. It performs up to five bounded stock batches, stops with a clear
 blocker on an unsuitable/missing shot, and never swaps existing manual footage.
 The optional instrumental setting generates a basic local soundtrack when no
-music has been selected; existing selected music is left alone by default.
+music has been selected; a separate **MusicGen neural music** option uses the
+local model when installed. The user must explicitly authorize any first-use
+model download. Both choices preserve existing selected music by default.
 Whisper alignment is optional; captions otherwise use available Edge
 word-boundary timings or the existing approximate fallback.
 
@@ -245,8 +247,9 @@ word-boundary timings or the existing approximate fallback.
 
 **Current limitations:** this is a per-project orchestrator, not a multi-project
 batch scheduler; it doesn't yet synthesize missing visual images or perform
-video-conditioned music analysis. Local MusicGen remains a separate opt-in
-control requiring its optional dependencies and model download. The automatic
+video-conditioned music analysis. Local MusicGen is also accessible through the automatic workflow, but still
+requires its optional dependencies and explicit first-use model-download
+permission. Batch scheduling and real Windows hardware QA remain open. The automatic
 music choice is the older free instrumental or an existing selected track.
 
 ## Still missing compared with MoneyPrinterTurbo
