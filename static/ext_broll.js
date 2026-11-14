@@ -6,7 +6,7 @@
   section.className = "card";
   section.innerHTML = `
     <h3>B-roll library (local)</h3>
-    <p class="muted">Add your own reusable footage and images. Stored on this computer, not uploaded to an AI service. Add descriptions, then generate transcript-matched suggestions. Rendering cutaways into the final clip is a separate step.</p>
+    <p class="muted">Add your own reusable footage and images. Stored on this computer, not uploaded to an AI service. Add descriptions, then generate transcript-matched suggestions. Choose suggested cutaways, render a separate copy, and download it. The original clip remains unchanged.</p>
     <div class="actions">
       <input id="broll-file" type="file" accept=".mp4,.mov,.mkv,.webm,.png,.jpg,.jpeg,.webp">
       <button id="broll-add" type="button">Add footage</button>
@@ -19,10 +19,16 @@
     <p class="muted">Choose a clip and find relevant B-roll moments. Suggestions are not applied automatically.</p>
     <div class="actions"><select id="broll-clip" aria-label="Clip to analyse"></select>
       <button type="button" id="broll-suggest">Suggest cutaways</button></div>
-    <div id="broll-suggestions" role="status"></div>`;
+    <div id="broll-suggestions" role="status"></div>
+    <div class="actions"><button type="button" id="broll-render" disabled>Render selected cutaways</button></div>
+    <p id="broll-render-status" class="msg" role="status"></p>
+    <div id="broll-download"></div>
+    <p class="muted">B-roll overlays the picture only: original speech and subtitles remain. Recheck campaign rules before posting.</p>`;
   panel.append(section);
   const $ = id => document.getElementById(id);
   const message = msg => { $("broll-message").textContent = msg; };
+  let planned = [];
+  let plannedClip = null;
   function currentProjectId() {
     // Project selection is reflected by the layout settings request and project title.
     // Use the page's selectedProject global, if present.
@@ -83,7 +89,7 @@
   }
   // Switching between already-open projects does not change the panel's CSS class.
   document.addEventListener("click", event => {
-    if (event.target.closest(".project-row")) setTimeout(() => { refresh(); loadClips(); $("broll-suggestions").replaceChildren(); }, 0);
+    if (event.target.closest(".project-row")) setTimeout(() => { refresh(); loadClips(); planned=[]; plannedClip=null; $("broll-render").disabled=true; $("broll-suggestions").replaceChildren(); $("broll-download").replaceChildren(); }, 0);
   });
   async function loadClips() {
     const pid = currentProjectId();
@@ -106,6 +112,11 @@
   }
   $("broll-suggest").addEventListener("click", async () => {
     const cid = $("broll-clip").value;
+    planned = [];
+    plannedClip = null;
+    $("broll-render").disabled = true;
+    $("broll-download").replaceChildren();
+    $("broll-render-status").textContent = "";
     const out = $("broll-suggestions");
     if (!cid) { out.textContent = "Create a clip first."; return; }
     out.textContent = "Matching footage to transcript...";
@@ -117,12 +128,69 @@
       const note = document.createElement("p");
       note.textContent = data.message;
       out.append(note);
-      for (const suggestion of data.suggestions) {
-        const row = document.createElement("p");
-        row.textContent = `${suggestion.start.toFixed(1)}–${suggestion.end.toFixed(1)}s: ${suggestion.asset_name} (matched: ${suggestion.matched_terms.join(", ")})`;
+      plannedClip = cid;
+      data.suggestions.forEach((suggestion, index) => {
+        const row = document.createElement("label");
+        row.style.cssText = "display:block;padding:8px 0";
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.checked = true;
+        check.addEventListener("change", () => {
+          planned[index].enabled = check.checked;
+          $("broll-render").disabled = !planned.some(v => v.enabled);
+        });
+        planned.push({asset_id:suggestion.asset_id, start:suggestion.start,
+                      end:suggestion.end, enabled:true});
+        row.append(check, document.createTextNode(
+          ` ${suggestion.start.toFixed(1)}–${suggestion.end.toFixed(1)}s: ${suggestion.asset_name} (matched: ${suggestion.matched_terms.join(", ")})`));
         out.append(row);
-      }
+      });
+      $("broll-render").disabled = !planned.length;
     } catch (err) { out.textContent = err.message; }
+  });
+  $("broll-render").addEventListener("click", async () => {
+    const cid = $("broll-clip").value;
+    const cutaways = planned.filter(p => p.enabled).map(({asset_id,start,end}) => ({asset_id,start,end}));
+    if (!cid || cid !== plannedClip || !cutaways.length) {
+      $("broll-render-status").textContent = "Choose a clip, suggest footage, and select cutaways first.";
+      return;
+    }
+    const button = $("broll-render");
+    button.disabled = true;
+    $("broll-download").replaceChildren();
+    const status = $("broll-render-status");
+    status.textContent = "Rendering a separate B-roll version...";
+    try {
+      const response = await fetch(`/api/clips/${cid}/broll/render`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({cutaways})
+      });
+      const started = await response.json();
+      if (!response.ok) throw Error(started.error || "Could not start export.");
+      for (let attempt=0; attempt<600; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const stateResponse = await fetch(`/api/clips/${cid}/broll/render`);
+        const state = await stateResponse.json();
+        if (!stateResponse.ok) throw Error(state.error || "Could not check render progress.");
+        if (state.id !== started.job_id) throw Error("Another export replaced this job.");
+        if (state.status === "failed") throw Error(state.error || "Render failed.");
+        status.textContent = `Rendering B-roll: ${Math.round(state.progress*100)}%`;
+        if (state.status === "done") {
+          status.textContent = "B-roll version ready. Your original video is untouched.";
+          const link = document.createElement("a");
+          link.href = state.download_url;
+          link.textContent = "Download video with B-roll";
+          link.setAttribute("download", "");
+          $("broll-download").append(link);
+          break;
+        }
+        if (attempt === 599) throw Error("Export is taking unusually long. Check the app logs.");
+      }
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = !planned.some(v => v.enabled);
+    }
   });
   $("broll-refresh").addEventListener("click", () => { refresh(); loadClips(); });
   $("broll-add").addEventListener("click", async () => {
