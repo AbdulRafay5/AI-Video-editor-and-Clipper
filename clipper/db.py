@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS creator_stages (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(project_id, stage)
 );
+CREATE TABLE IF NOT EXISTS creator_image_jobs (
+    project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    report_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS creator_auto_jobs (
     project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -225,6 +231,19 @@ def init_db():
         conn.execute(
             "UPDATE creator_auto_jobs SET status='interrupted', "
             "report_json='{\"error\":\"Automation interrupted by app restart; retry to resume saved stages.\"}', "
+            "updated_at=CURRENT_TIMESTAMP WHERE status='running'"
+        )
+        conn.execute(
+            "UPDATE creator_projects SET status=CASE "
+            "WHEN EXISTS(SELECT 1 FROM creator_stages s WHERE s.project_id=creator_projects.id "
+            "AND s.stage='narration' AND s.status='done') THEN 'narration_ready' "
+            "WHEN script_json IS NOT NULL THEN 'script_ready' ELSE 'draft' END, "
+            "error='Image generation interrupted; retry missing scenes.' "
+            "WHERE status='generating_images'"
+        )
+        conn.execute(
+            "UPDATE creator_image_jobs SET status='interrupted', "
+            "report_json='{\"error\":\"Interrupted by app restart.\"}', "
             "updated_at=CURRENT_TIMESTAMP WHERE status='running'"
         )
         # An interrupted local script job can be retried safely after restart.
