@@ -230,9 +230,37 @@ def render_status(pid):
                        "WHERE project_id=? AND stage='render'", (pid,))
     state = row["status"] if row else "pending"
     artifact = json.loads(row["artifact_json"]) if row and row["artifact_json"] else {}
+    revision = artifact.get("revision_id")
+    stages = {}
+    if revision:
+        try:
+            live = _engine(pid).status(revision)
+            stages = live.get("stages", {})
+        except (ProjectError, OSError, ValueError, KeyError):
+            pass
     return jsonify(status=state, error=row["error"] if row else None,
-                   revision_id=artifact.get("revision_id"),
+                   revision_id=revision, completed_stages=len(stages),
                    ready=state=="done")
+
+
+@bp.post("/api/creator/projects/<int:pid>/render/cancel")
+def cancel_render(pid):
+    project = _project(pid)
+    if not project:
+        return jsonify(error="Project not found."), 404
+    if project["status"] != "rendering":
+        return jsonify(error="No active render to cancel."), 409
+    row = db.query_one("SELECT artifact_json FROM creator_stages "
+                       "WHERE project_id=? AND stage='render'", (pid,))
+    artifact = json.loads(row["artifact_json"]) if row and row["artifact_json"] else {}
+    revision = artifact.get("revision_id")
+    if not isinstance(revision, str):
+        return jsonify(error="Active revision could not be identified."), 409
+    try:
+        _engine(pid).cancel(revision)
+    except (ProjectError, OSError, ValueError):
+        return jsonify(error="Could not cancel the active render."), 500
+    return jsonify(ok=True, status="cancellation_requested")
 
 
 @bp.get("/api/creator/projects/<int:pid>/render/file")
