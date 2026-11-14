@@ -555,14 +555,17 @@
     neuralPanel.append(neuralTitle,neuralExplain,neuralMoodLabel,neuralLengthLabel,
       neuralPromptLabel,downloadLabel,previewNeural,generateNeural,neuralStatus);
     musicRow.append(neuralPanel);
-    if(project.stages.music?.status === "done") {
-      const listenNeural = document.createElement("audio");
-      listenNeural.controls = true;
-      listenNeural.preload = "none";
-      listenNeural.src = "/api/creator/projects/"+project.id+"/music/neural/audio";
-      listenNeural.setAttribute("aria-label","Preview neural soundtrack");
-      neuralPanel.append(listenNeural);
-    }
+    const listenNeural = document.createElement("audio");
+    listenNeural.controls = true;
+    listenNeural.preload = "none";
+    listenNeural.src = "/api/creator/projects/"+project.id+"/music/neural/audio";
+    listenNeural.setAttribute("aria-label","Preview neural soundtrack");
+    listenNeural.hidden = true;
+    neuralPanel.append(listenNeural);
+    request("GET","/api/creator/projects/"+project.id+"/music").then(data => {
+      if(selected !== project.id) return;
+      listenNeural.hidden = data.music?.mode !== "musicgen";
+    }).catch(()=>{});
     function neuralPayload(){
       return {mood:neuralMood.value,prompt:neuralPrompt.value,
         duration:neuralLength.value==="match"?"match":Number(neuralLength.value),
