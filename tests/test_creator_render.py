@@ -112,6 +112,36 @@ class RenderBridgeTests(unittest.TestCase):
         state = self.client.get(f"/api/creator/projects/{self.pid}/render").get_json()
         self.assertEqual(state["status"], "failed")
 
+    def test_music_stage_invalidation_and_safety(self):
+        bad = self.client.post(f"/api/creator/projects/{self.pid}/music",
+                               data={"audio": (io.BytesIO(b"data"), "unsafe.exe")})
+        self.assertEqual(bad.status_code, 400)
+        self.assertIsNone(self.client.get(
+            f"/api/creator/projects/{self.pid}/music").get_json()["music"])
+        self.assertEqual(self.client.delete(
+            f"/api/creator/projects/{self.pid}/music").status_code, 200)
+
+    def test_manifest_includes_saved_background_music(self):
+        self._add_narration()
+        clips = {}
+        for slot in ("hook", "scene_0", "closing"):
+            name = "clip_" + slot + ".mp4"
+            path = render._root(self.pid) / "visuals" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"placeholder")
+            clips[slot] = name
+        db.execute("UPDATE creator_stages SET status='done', artifact_json=? "
+                   "WHERE project_id=? AND stage='visuals'",
+                   (json.dumps({"clips": clips}), self.pid))
+        music = render._root(self.pid) / "music" / "music_test.mp3"
+        music.parent.mkdir(parents=True, exist_ok=True)
+        music.write_bytes(b"fake-music")
+        db.execute("UPDATE creator_stages SET status='done', artifact_json=? "
+                   "WHERE project_id=? AND stage='music'",
+                   (json.dumps({"filename": music.name, "duration": 4.0}), self.pid))
+        manifest = render._manifest(self.pid, render._project(self.pid))
+        self.assertEqual(Path(manifest["bgm"]), music)
+
     def test_cancel_requires_active_render(self):
         self.assertEqual(self.client.post(
             f"/api/creator/projects/{self.pid}/render/cancel").status_code, 409)
