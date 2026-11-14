@@ -349,7 +349,7 @@
         .catch(() => {});
     }
     const slots = ["hook", ...script.scenes.map((_, index) => "scene_" + index), "closing"];
-    function drawSlots(clips) {
+    function drawSlots(clips, sources = {}) {
       visualList.replaceChildren();
       for (const slot of slots) {
         const wrap = document.createElement("div");
@@ -385,6 +385,20 @@
           }
         };
         wrap.append(label, file, upload, state);
+        const source = sources[slot];
+        if (source && source.provider === "pixabay") {
+          const note = document.createElement("span");
+          note.textContent = "Pixabay · " + (source.query || "stock video");
+          wrap.append(note);
+          if (typeof source.source_page === "string" && /^https:\/\/(?:[a-z0-9-]+\.)?pixabay\.com\//i.test(source.source_page)) {
+            const link = document.createElement("a");
+            link.href = source.source_page;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = "Review original";
+            wrap.append(link);
+          }
+        }
         visualList.append(wrap);
       }
       const ready = slots.every(slot => Boolean(clips[slot]));
@@ -396,7 +410,7 @@
         : "Upload footage for each part of the script to enable rendering.";
     }
     request("GET", "/api/creator/projects/" + project.id + "/visuals")
-      .then(data => { if(selected === project.id) drawSlots(data.clips || {}); })
+      .then(data => { if(selected === project.id) drawSlots(data.clips || {}, data.sources || {}); })
       .catch(err => { if(selected === project.id) renderMessage.textContent = err.message; });
     renderButton.onclick = async () => {
       if(!confirm("Render your video locally using the MoneyPrinterTurbo project renderer? This can use significant CPU and disk space.")) return;
