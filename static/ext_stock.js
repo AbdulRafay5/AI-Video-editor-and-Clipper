@@ -74,7 +74,7 @@
       const data = await response.json();
       if (!response.ok) throw Error(data.error || "Search failed.");
       if (projectAtStart !== currentId()) return;
-      say(`Found ${data.results.length} stock-video candidates. Import only footage that fits the clip.`);
+      say(`${data.cached ? "Reused saved results" : "Searched Pixabay"}: ${data.results.length} stock-video candidates. Import only footage that fits the clip.`);
       for (const result of data.results.slice(0, 12)) {
         const card = document.createElement("div");
         card.className = "card";
