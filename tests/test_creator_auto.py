@@ -15,6 +15,7 @@ from unittest.mock import patch
 from flask import Flask
 from clipper import creator_api, creator_narration_api as narration, creator_stock_api as stock, creator_auto_api as auto
 from clipper import creator_neural_music_api as neural, local_musicgen
+from clipper import creator_image_api as images, local_imagegen
 from clipper import creator_render_api as render, creator_finish_api as finish, db
 
 
@@ -38,6 +39,7 @@ class AutomaticCreatorTests(unittest.TestCase):
         app.register_blueprint(creator_api.bp)
         app.register_blueprint(narration.bp)
         app.register_blueprint(stock.bp)
+        app.register_blueprint(images.bp)
         app.register_blueprint(neural.bp)
         app.register_blueprint(render.bp)
         app.register_blueprint(finish.bp)
@@ -225,6 +227,39 @@ class AutomaticCreatorTests(unittest.TestCase):
         self.assertGreater(len(video.data), 1024)
         video.close()
         self.assertEqual(counter[0], 3)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Real FFmpeg renderer unavailable")
+    def test_image_fallback_completes_missing_scene_without_stock_keys(self):
+        self._add_prepared_narration_and_footage(real_video=True)
+        visuals = db.query_one("SELECT artifact_json FROM creator_stages "
+                               "WHERE project_id=? AND stage='visuals'", (self.pid,))
+        saved = json.loads(visuals["artifact_json"])
+        removed = saved["clips"].pop("scene_0")
+        db.execute("UPDATE creator_stages SET status='pending',artifact_json=? "
+                   "WHERE project_id=? AND stage='visuals'", (json.dumps(saved), self.pid))
+        original = render._root(self.pid) / "visuals" / removed
+
+        def fake_image(prompt, target, **kwargs):
+            target.write_bytes(b"image created from prompt fixture")
+            return {"model": local_imagegen.MODEL}
+
+        def fake_animation(source, dest, **kwargs):
+            shutil.copyfile(original, dest)
+            return dest
+
+        with patch.object(local_imagegen, "dependencies_ready", return_value=True), \
+             patch.object(local_imagegen, "generate_image", side_effect=fake_image), \
+             patch.object(local_imagegen, "animate_still", side_effect=fake_animation), \
+             patch.object(images._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch.object(render._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch("clipper.creator_providers.configured", return_value=[]):
+            status = self._start_and_run({
+                "approve_stock_download": True, "use_ai_images": True,
+                "approve_image_model_download": False, "music": "none"})
+        self.assertEqual(status["status"], "done", status)
+        self.assertIn("scene_0", render._visuals(self.pid))
+        self.assertEqual(self.client.get(f"/api/creator/projects/{self.pid}/render/file").status_code,200)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "Real FFmpeg renderer unavailable")
