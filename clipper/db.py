@@ -76,6 +76,26 @@ CREATE TABLE IF NOT EXISTS campaigns (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS creator_projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT NOT NULL,
+    audience TEXT NOT NULL DEFAULT 'general',
+    target_seconds INTEGER NOT NULL DEFAULT 60,
+    status TEXT NOT NULL DEFAULT 'draft',
+    script_json TEXT,
+    error TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS creator_stages (
+    project_id INTEGER NOT NULL REFERENCES creator_projects(id) ON DELETE CASCADE,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    artifact_json TEXT,
+    error TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(project_id, stage)
+);
 CREATE TABLE IF NOT EXISTS clip_compliance (
     clip_id INTEGER PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE,
     report_json TEXT NOT NULL,
