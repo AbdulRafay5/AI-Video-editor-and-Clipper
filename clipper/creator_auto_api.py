@@ -30,7 +30,7 @@ class AutoError(ValueError):
 def validate(payload):
     if not isinstance(payload, dict):
         raise AutoError("Select automation options.")
-    expected = {"approve_stock_download", "voice_engine", "voice", "music", "align_captions", "approve_model_download", "use_ai_images", "approve_image_model_download"}
+    expected = {"approve_stock_download", "voice_engine", "voice", "music", "align_captions", "approve_model_download", "use_ai_images", "approve_image_model_download", "visual_mode"}
     if set(payload) - expected:
         raise AutoError("Unexpected automation option.")
     stock = payload.get("approve_stock_download", False)
@@ -40,6 +40,15 @@ def validate(payload):
     image_download = payload.get("approve_image_model_download", False)
     if type(stock) is not bool or type(aligned) is not bool or type(music_download) is not bool or type(images) is not bool or type(image_download) is not bool:
         raise AutoError("Download approval and alignment must be true or false.")
+    mode = payload.get("visual_mode")
+    if mode is not None and mode not in ("stock", "ai"):
+        raise AutoError("Visual source must be stock footage or AI-generated visuals.")
+    if mode == "ai":
+        if stock:
+            raise AutoError("AI visual mode does not allow stock footage downloads.")
+        images = True
+    if mode == "stock" and images:
+        raise AutoError("Stock mode cannot also request AI image fallback.")
     voice_engine = payload.get("voice_engine")
     voice = payload.get("voice")
     if voice_engine is not None and (not isinstance(voice_engine, str) or len(voice_engine) > 40):
@@ -52,7 +61,8 @@ def validate(payload):
     return {"approve_stock_download": stock, "voice_engine": voice_engine,
             "voice": voice, "music": music, "align_captions": aligned,
             "approve_model_download": music_download,
-            "use_ai_images": images, "approve_image_model_download": image_download}
+            "use_ai_images": images, "approve_image_model_download": image_download,
+            "visual_mode": mode or "legacy"}
 
 
 def status(pid):
@@ -150,38 +160,14 @@ def _automate(pid, options):
         def missing_slots():
             return [slot for slot in slots if not render._visuals(pid).get(slot)]
 
-        if missing_slots() and options["approve_stock_download"]:
-            from . import creator_providers
-            if not creator_providers.configured() and not options["use_ai_images"]:
-                raise AutoError("Configure a free stock API key or enable local AI image fallback.")
-            if creator_providers.configured():
-                for attempt in range(MAX_BATCHES):
-                    before = missing_slots()
-                    if not before:
-                        break
-                    _invoke(client, "POST", base + "/stock/auto-fill",
-                            {"approve_download": True})
-                    deadline = time.monotonic() + WAIT_SECONDS["footage"]
-                    while time.monotonic() < deadline:
-                        job = db.query_one(
-                            "SELECT status, report_json FROM creator_stock_jobs "
-                            "WHERE project_id=?", (pid,))
-                        if job and job["status"] in ("done", "failed"):
-                            break
-                        time.sleep(0.4)
-                    else:
-                        raise AutoError("Stock footage lookup timed out.")
-                    after = missing_slots()
-                    if job["status"] == "failed" or len(after) >= len(before):
-                        # Optional local image generation can provide the missing
-                        # scenes when stock services cannot; never repeat bad results.
-                        if not options["use_ai_images"]:
-                            raise AutoError("Stock footage is unavailable; upload missing scenes or enable AI image fallback.")
-                        break
-
-        if missing_slots() and options["use_ai_images"]:
+        if options.get("visual_mode") == "ai":
+            # Explicit AI mode regenerates *every* script slot, even if stock
+            # or manually uploaded footage already exists in this project.
+            # The image worker swaps references only after all scenes succeed.
             _invoke(client, "POST", base + "/images/fill", {
-                "approve_model_download": options["approve_image_model_download"]})
+                "approve_model_download": options["approve_image_model_download"],
+                "replace_existing": True,
+            })
             deadline = time.monotonic() + WAIT_SECONDS["footage"]
             while time.monotonic() < deadline:
                 job = db.query_one(
@@ -191,18 +177,66 @@ def _automate(pid, options):
                     break
                 time.sleep(0.4)
             else:
-                raise AutoError("Local AI image generation timed out.")
+                raise AutoError("AI-only scene generation timed out.")
             if job["status"] != "done":
                 detail = json.loads(job["report_json"] or "{}")
                 error = next(iter(detail.get("errors", {}).values()),
-                             "Some AI image scenes could not be generated.")
+                             "AI-only scene generation failed.")
                 raise AutoError(str(error)[:280])
+        else:
+            if missing_slots() and options["approve_stock_download"]:
+                from . import creator_providers
+                if not creator_providers.configured() and not options["use_ai_images"]:
+                    raise AutoError("Configure a free stock API key or enable local AI image fallback.")
+                if creator_providers.configured():
+                    for attempt in range(MAX_BATCHES):
+                        before = missing_slots()
+                        if not before:
+                            break
+                        _invoke(client, "POST", base + "/stock/auto-fill",
+                                {"approve_download": True})
+                        deadline = time.monotonic() + WAIT_SECONDS["footage"]
+                        while time.monotonic() < deadline:
+                            job = db.query_one(
+                                "SELECT status, report_json FROM creator_stock_jobs "
+                                "WHERE project_id=?", (pid,))
+                            if job and job["status"] in ("done", "failed"):
+                                break
+                            time.sleep(0.4)
+                        else:
+                            raise AutoError("Stock footage lookup timed out.")
+                        after = missing_slots()
+                        if job["status"] == "failed" or len(after) >= len(before):
+                            # Optional local image generation can provide the missing
+                            # scenes when stock services cannot; never repeat bad results.
+                            if not options["use_ai_images"]:
+                                raise AutoError("Stock footage is unavailable; upload missing scenes or enable AI image fallback.")
+                            break
 
-        if missing_slots():
-            if not options["approve_stock_download"] and not options["use_ai_images"]:
-                raise AutoError(
-                    "Missing scene footage. Approve stock downloads or enable local AI image generation.")
-            raise AutoError("Some scenes still lack footage; review footage and image reports.")
+            if missing_slots() and options["use_ai_images"]:
+                _invoke(client, "POST", base + "/images/fill", {
+                    "approve_model_download": options["approve_image_model_download"]})
+                deadline = time.monotonic() + WAIT_SECONDS["footage"]
+                while time.monotonic() < deadline:
+                    job = db.query_one(
+                        "SELECT status, report_json FROM creator_image_jobs WHERE project_id=?",
+                        (pid,))
+                    if job and job["status"] in ("done", "blocked", "interrupted"):
+                        break
+                    time.sleep(0.4)
+                else:
+                    raise AutoError("Local AI image generation timed out.")
+                if job["status"] != "done":
+                    detail = json.loads(job["report_json"] or "{}")
+                    error = next(iter(detail.get("errors", {}).values()),
+                                 "Some AI image scenes could not be generated.")
+                    raise AutoError(str(error)[:280])
+
+            if missing_slots():
+                if not options["approve_stock_download"] and not options["use_ai_images"]:
+                    raise AutoError(
+                        "Missing scene footage. Approve stock downloads or enable local AI image generation.")
+                raise AutoError("Some scenes still lack footage; review footage and image reports.")
         report["completed"].append("footage")
 
         current = "music"
