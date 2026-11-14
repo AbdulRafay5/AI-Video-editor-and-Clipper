@@ -43,10 +43,38 @@ clipper projects, clip exports, stock search and campaign routes are unchanged.
 7. Choose **Render complete video**. The creator stage status updates while it runs.
 8. Download the completed MP4 or cancel an active render.
 
+## Automatic free stock sourcing (Creator Studio)
+
+Creator Studio now offers **Find footage for missing scenes** using the existing
+free Pixabay API integration. Set `PIXABAY_API_KEY` using a free Pixabay
+developer account. This does not require a subscription or a paid API.
+
+On each explicit click it searches up to six currently empty scenes using
+their saved visual descriptions. Matching follows MoneyPrinterTurbo's
+duration/orientation/resolution principles and prioritises manageable,
+portrait-format MP4s. It uses a bounded download, verifies the MP4 through
+FFprobe and records the Pixabay source link. Existing manually uploaded footage
+is never overwritten. Each batch reports misses and preserves previously saved
+scenes. Subsequent clicks continue with the remaining scenes.
+
+**Important limitation:** Keyword/metadata matching is not the same as visually
+examining the footage. Always review the original source and output for
+relevance, safety and usage rights. Source URLs are exposed in the Creator
+Studio UI. Pixabay content is subject to its current licence and any
+restrictions affecting recognisable persons, logos or trademarks.
+
+The automatic stock search is a **new compatibility adapter** based on the
+material-selection practices of MoneyPrinterTurbo's `app/services/material.py`.
+It is not a verbatim copy of that provider module, because the original has
+dependencies on MoneyPrinterTurbo-specific schemas, provider settings,
+loggers and multi-provider request code. The existing clipper search is reused
+without changing its routes or API responses. The 946-line revision renderer
+remains the direct upstream code copy.
+
 ## Still missing compared with MoneyPrinterTurbo
 
-- Fully automatic footage selection/placement, free provider integrations
-  beyond the separate existing Pixabay search, and visual-content checks
+- Visual analysis of downloaded footage, additional free providers
+  beyond Pixabay, and more advanced per-scene footage selection
 - Local image synthesis and practical model-tested text-to-video generation
 - Creator Studio subtitle compositing and advanced transitions
 - Automated batch rendering / topic queues and social publishing
