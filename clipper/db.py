@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS creator_stages (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(project_id, stage)
 );
+CREATE TABLE IF NOT EXISTS creator_edit_settings (
+    project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
+    options_json TEXT NOT NULL,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS creator_stock_jobs (
     project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'pending',
