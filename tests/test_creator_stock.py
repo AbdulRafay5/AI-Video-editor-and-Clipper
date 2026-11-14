@@ -91,10 +91,11 @@ class CreatorStockTests(unittest.TestCase):
             "source_page": "https://pixabay.com/videos/abc",
             "creator": "Artist",
         }
-        def fake_download(url, path):
+        def fake_download(url, path, provider="pixabay"):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"local fake video")
-        with patch.object(stock, "_search", return_value=[candidate]), \
+        with patch.object(stock.providers, "configured", return_value=["pixabay"]), \
+             patch.object(stock.providers, "search", return_value=[candidate]), \
              patch.object(stock, "_download", side_effect=fake_download):
             stock._run(self.pid, ["scene_0"])
         result = self.client.get(f"/api/creator/projects/{self.pid}/visuals").get_json()
@@ -105,7 +106,8 @@ class CreatorStockTests(unittest.TestCase):
         self.assertIn("scene_0", status["report"]["applied"])
 
     def test_failed_search_keeps_existing_visuals(self):
-        with patch.object(stock, "_search", return_value=[]):
+        with patch.object(stock.providers, "configured", return_value=["pixabay"]), \
+             patch.object(stock.providers, "search", return_value=[]):
             stock._run(self.pid, ["scene_0"])
         status = self.client.get(f"/api/creator/projects/{self.pid}/stock").get_json()
         self.assertIn("scene_0", status["report"]["errors"])
