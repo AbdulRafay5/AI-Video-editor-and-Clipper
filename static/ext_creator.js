@@ -21,6 +21,36 @@
     <div class="actions"><button id="creator-create" type="button">Create video project</button>
       <button id="creator-refresh" type="button" class="secondary">Refresh projects</button></div>
     <p id="creator-message" class="msg" role="status"></p>
+    <section class="card" aria-label="Batch video production">
+      <h3>Batch video production</h3>
+      <p class="muted">Create 2–8 video projects. Jobs run one at a time to protect local GPU memory. Each output requires review before publishing.</p>
+      <label>Topics · one per line
+        <textarea id="creator-batch-topics" rows="4" placeholder="How coffee is roasted&#10;Five facts about ocean life"></textarea>
+      </label>
+      <div class="form-grid">
+        <label>Visual source
+          <select id="creator-batch-mode">
+            <option value="stock">Free stock footage</option>
+            <option value="ai" selected>AI images + motion</option>
+            <option value="neural_video">True neural video · experimental</option>
+          </select>
+        </label>
+        <label>Soundtrack
+          <select id="creator-batch-music">
+            <option value="none" selected>No music</option>
+            <option value="instrumental">Free local instrumental</option>
+            <option value="neural">MusicGen · experimental</option>
+          </select>
+        </label>
+      </div>
+      <label><input id="creator-batch-download" type="checkbox"> Approve first-use downloads for the selected visual model or stock footage</label>
+      <div class="actions">
+        <button id="creator-batch-start" type="button">Generate batch</button>
+        <button id="creator-batch-refresh" type="button" class="secondary">Refresh batches</button>
+      </div>
+      <p id="creator-batch-message" class="muted" role="status"></p>
+      <div id="creator-batches"></div>
+    </section>
     <div id="creator-projects" class="form-grid"></div>
     <div id="creator-details"></div>`;
   main.append(area);
@@ -1021,6 +1051,91 @@
     } catch(err) { say(err.message); }
     finally { create.disabled=false; }
   };
-  $("creator-refresh").onclick = refreshList;
+  async function refreshBatches(){
+    const list=$("creator-batches");
+    try{
+      const result=await request("GET","/api/creator/batches");
+      list.replaceChildren();
+      for(const summary of result.batches){
+        const {batch}=await request("GET","/api/creator/batches/"+summary.id);
+        const wrapper=document.createElement("section");
+        wrapper.className="card";
+        const heading=document.createElement("strong");
+        heading.textContent="Batch "+batch.id+" · "+batch.status;
+        wrapper.append(heading);
+        for(const item of batch.items){
+          const row=document.createElement("div");
+          row.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px";
+          const open=document.createElement("button");
+          open.type="button";open.className="secondary";
+          open.textContent=item.topic+" · "+item.status;
+          open.onclick=()=>openProject(item.project_id);
+          row.append(open);
+          if(item.status==="done"){
+            const download=document.createElement("a");
+            download.href="/api/creator/projects/"+item.project_id+"/render/file";
+            download.setAttribute("download","creator_"+item.project_id+".mp4");
+            download.textContent="Download MP4";
+            row.append(download);
+          }
+          if(item.error){
+            const detail=document.createElement("span");
+            detail.className="muted";
+            detail.textContent=item.error;
+            row.append(detail);
+          }
+          wrapper.append(row);
+        }
+        if(batch.status!=="running" && batch.items.some(x=>["blocked","interrupted","queued"].includes(x.status))){
+          const retry=document.createElement("button");
+          retry.type="button";retry.className="secondary";
+          retry.textContent="Retry incomplete videos";
+          retry.onclick=async()=>{
+            retry.disabled=true;
+            try{
+              await request("POST","/api/creator/batches/"+batch.id+"/retry",{});
+              await refreshBatches();
+            }catch(err){$("creator-batch-message").textContent=err.message;retry.disabled=false;}
+          };
+          wrapper.append(retry);
+        }
+        list.append(wrapper);
+      }
+    }catch(err){$("creator-batch-message").textContent=err.message;}
+  }
+  $("creator-batch-start").onclick=async()=>{
+    const button=$("creator-batch-start");
+    const topics=$("creator-batch-topics").value.split(/\\r?\\n/).map(t=>t.trim()).filter(Boolean);
+    if(topics.length<2||topics.length>8){
+      $("creator-batch-message").textContent="Enter 2–8 topics, one per line.";
+      return;
+    }
+    if(!confirm("Create "+topics.length+" independent videos? They will generate one at a time and require review before publishing."))return;
+    button.disabled=true;
+    const mode=$("creator-batch-mode").value;
+    const approved=$("creator-batch-download").checked;
+    try{
+      await request("POST","/api/creator/batches",{
+        topics,
+        audience:$("creator-audience").value,
+        target_seconds:Number($("creator-length").value),
+        options:{
+          visual_mode:mode,
+          approve_stock_download:mode==="stock"&&approved,
+          approve_image_model_download:mode!=="stock"&&approved,
+          music:$("creator-batch-music").value,
+          approve_model_download:false,
+          align_captions:false
+        }
+      });
+      $("creator-batch-message").textContent="Batch started. Open its projects to inspect stages.";
+      await refreshList();
+      await refreshBatches();
+    }catch(err){$("creator-batch-message").textContent=err.message;}
+    finally{button.disabled=false;}
+  };
+  $("creator-batch-refresh").onclick=refreshBatches;
+  $("creator-refresh").onclick=refreshList;
+  refreshBatches();
   refreshList();
 })();
