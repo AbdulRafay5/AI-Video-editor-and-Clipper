@@ -164,6 +164,15 @@ def init_db():
             "You can read the document again or fill in the rules by hand.' "
             "WHERE status = 'extracting'"
         )
+        # An interrupted local script job can be retried safely after restart.
+        conn.execute(
+            "UPDATE creator_projects SET status='failed', error='Script generation was interrupted; retry.' "
+            "WHERE status='generating_script'"
+        )
+        conn.execute(
+            "UPDATE creator_stages SET status='failed', error='Interrupted by app restart.' "
+            "WHERE stage='script' AND status='running'"
+        )
 
 
 def query(sql, params=()):
