@@ -234,7 +234,7 @@
     visualTitle.textContent = "Scene footage · local and free";
     const visualHint = document.createElement("p");
     visualHint.className = "muted";
-    visualHint.textContent = "Upload MP4, MOV or MKV footage for the opening, each scene and ending. No paid services or automatic downloads.";
+    visualHint.textContent = "Provide your own clips, find free stock footage automatically, or generate local AI image scenes with cinematic motion. No paid video generation required.";
     const visualList = document.createElement("div");
     visualBox.append(visualTitle, visualHint, visualList);
     const stockPanel = document.createElement("section");
