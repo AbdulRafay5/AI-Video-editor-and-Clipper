@@ -7,6 +7,7 @@ on:
       - 'clipper/creator_api.py'
       - 'clipper/creator_narration_api.py'
       - 'clipper/creator_render_api.py'
+      - 'clipper/creator_stock_api.py'
       - 'clipper/mpt_compat/**'
       - 'clipper/local_narration.py'
       - 'clipper/neural_narration.py'
@@ -15,6 +16,7 @@ on:
       - 'tests/test_creator_api.py'
       - 'tests/test_creator_narration.py'
       - 'tests/test_creator_render.py'
+      - 'tests/test_creator_stock.py'
       - 'tests/test_neural_narration.py'
       - '.github/workflows/creator-tests.yml'
   workflow_dispatch:
