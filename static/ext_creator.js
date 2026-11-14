@@ -71,12 +71,12 @@
       const {project} = await request("GET", "/api/creator/projects/" + id);
       if(selected !== id) return;
       renderProject(project);
-      if(["generating_script","generating_narration","rendering"].includes(project.status)) {
+      if(["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status)) {
         polling=setInterval(async () => {
           if(selected !== id) return stopPolling();
           try {
             const {project:p} = await request("GET", "/api/creator/projects/" + id);
-            if(!["generating_script","generating_narration","rendering"].includes(p.status)) {
+            if(!["generating_script","generating_narration","rendering","sourcing_visuals"].includes(p.status)) {
               stopPolling();
               renderProject(p);
               refreshList();
@@ -106,7 +106,7 @@
     buttons.className = "actions";
     const generate = document.createElement("button");
     generate.type = "button";
-    generate.disabled = ["generating_script","generating_narration","rendering"].includes(project.status);
+    generate.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status);
     generate.textContent = project.script ? "Regenerate script" : "Generate script with local Ollama";
     generate.onclick = async () => {
       if(project.script && !confirm("Replace the current script? Save a copy elsewhere if needed.")) return;
@@ -121,7 +121,7 @@
     const remove = document.createElement("button");
     remove.type = "button"; remove.className = "secondary";
     remove.textContent = "Delete project";
-    remove.disabled = ["generating_script","generating_narration","rendering"].includes(project.status);
+    remove.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status);
     remove.onclick = async () => {
       if(!confirm("Delete this original video project?")) return;
       try {
@@ -168,7 +168,7 @@
       if(chosen.voices.includes(chosen.voice)) voiceSelect.value = chosen.voice;
       voiceInfo.textContent = chosen.description + (chosen.online
         ? " · Free, Internet connection required" : " · Free, runs locally");
-      voiceButton.disabled = !chosen.ready || ["generating_script","generating_narration","rendering"].includes(project.status);
+      voiceButton.disabled = !chosen.ready || ["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status);
     }
     engineSelect.addEventListener("change", syncVoiceOptions);
     const audioList = document.createElement("div");
@@ -248,7 +248,7 @@
     musicFile.type = "file"; musicFile.accept = ".mp3,.wav,.flac,.aac,audio/*";
     const musicUpload = document.createElement("button");
     musicUpload.type = "button"; musicUpload.textContent = "Use this music";
-    musicUpload.disabled = ["generating_script","generating_narration","rendering"].includes(project.status);
+    musicUpload.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status);
     const musicRemove = document.createElement("button");
     musicRemove.type = "button"; musicRemove.className = "secondary";
     musicRemove.textContent = "Remove music";
@@ -324,7 +324,7 @@
         const upload = document.createElement("button");
         upload.type = "button"; upload.className = "secondary";
         upload.textContent = clips[slot] ? "Replace footage" : "Upload footage";
-        upload.disabled = ["generating_script","generating_narration","rendering"].includes(project.status);
+        upload.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status);
         const state = document.createElement("span");
         state.textContent = clips[slot] ? "Saved" : "Missing";
         upload.onclick = async () => {
@@ -352,7 +352,7 @@
       const ready = slots.every(slot => Boolean(clips[slot]));
       renderButton.disabled = !ready ||
         project.stages.narration?.status !== "done" ||
-        ["generating_script","generating_narration","rendering"].includes(project.status);
+        ["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status);
       renderMessage.textContent = ready
         ? "All scene footage uploaded. Narration is required to render."
         : "Upload footage for each part of the script to enable rendering.";
