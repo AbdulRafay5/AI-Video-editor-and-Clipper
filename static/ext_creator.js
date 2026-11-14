@@ -76,7 +76,7 @@
           if(selected !== id) return stopPolling();
           try {
             const {project:p} = await request("GET", "/api/creator/projects/" + id);
-            if(!["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(p.status)) {
+            if(!["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images","generating_video"].includes(p.status)) {
               stopPolling();
               renderProject(p);
               refreshList();
@@ -744,7 +744,12 @@
       "sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
     const autoMessage=document.createElement("p");
     autoMessage.className="muted";
-    autoPanel.append(autoTitle,autoDesc,visualModeLabel,visualModeNote,stockApproval,autoImageDownloadLabel,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage);
+    const autoDownload=document.createElement("a");
+    autoDownload.href="/api/creator/projects/"+project.id+"/render/file";
+    autoDownload.setAttribute("download","creator_"+project.id+".mp4");
+    autoDownload.textContent="Download final MP4";
+    autoDownload.style.display="none";
+    autoPanel.append(autoTitle,autoDesc,visualModeLabel,visualModeNote,stockApproval,autoImageDownloadLabel,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage,autoDownload);
     visualBox.append(autoPanel);
     let autoPollTimer=null;
     async function refreshAuto(){
@@ -752,6 +757,7 @@
         const info=await request("GET","/api/creator/projects/"+project.id+"/auto");
         if(selected!==project.id) return;
         const completed=info.report?.completed?.join(", ")||"none";
+        autoDownload.style.display="none";
         if(info.status==="running"){
           autoMessage.textContent="Working on "+info.step+" · completed: "+completed;
           startAuto.disabled=true;
@@ -766,7 +772,17 @@
             ". Completed: "+completed+". You can retry.";
           startAuto.disabled=false;
         }else if(info.status==="done"){
-          autoMessage.textContent="Video ready for review. Download or inspect the final MP4 before publishing.";
+          const current=await request("GET","/api/creator/projects/"+project.id);
+          if(selected!==project.id)return;
+          if(current.project?.stages?.render?.status==="done"){
+            autoMessage.textContent="Video rendered. Review the final MP4 before publishing.";
+            autoDownload.style.display="";
+            request("GET","/api/creator/projects/"+project.id+"/visuals")
+              .then(data=>{if(selected===project.id)drawSlots(data.clips||{},data.sources||{});})
+              .catch(()=>{});
+          }else{
+            autoMessage.textContent="The automation reported completion, but no completed render is recorded. Check the render stage before downloading.";
+          }
           startAuto.disabled=false;
         }else if(info.status==="interrupted"){
           autoMessage.textContent="Previous job interrupted. Restart to reuse completed stages.";
@@ -952,11 +968,7 @@
       } catch (err) { say(err.message); renderButton.disabled = false; }
     };
     if (project.stages.render?.status === "done") {
-      const link = document.createElement("a");
-      link.href = "/api/creator/projects/" + project.id + "/render/file";
-      link.textContent = "Download completed MP4";
-      link.setAttribute("download", "creator_" + project.id + ".mp4");
-      visualBox.append(link);
+      autoDownload.style.display="";
     }
     const [titleLabel, titleInput] = field("Title", script.title, 1);
     const [hookLabel, hookInput] = field("Opening hook", script.hook, 2);
