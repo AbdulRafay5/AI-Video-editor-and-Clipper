@@ -275,6 +275,49 @@
         await openProject(project.id);
       } catch(err) {say(err.message);stockButton.disabled=false;}
     };
+    const finishBox = document.createElement("section");
+    finishBox.className = "card";
+    const finishTitle = document.createElement("h4");
+    finishTitle.textContent = "Final video subtitles and fades";
+    const timingNote = document.createElement("p");
+    timingNote.className = "muted";
+    timingNote.textContent = "Caption times are estimated from narration segments, not word-aligned. Fades apply to the start and end of the video; scene cuts remain unchanged.";
+    const subtitleChoice = document.createElement("input");
+    subtitleChoice.type = "checkbox";
+    subtitleChoice.checked = true;
+    const subLabel = document.createElement("label");
+    subLabel.append(subtitleChoice, document.createTextNode(" Burn subtitles into final video"));
+    const fadeChoice = document.createElement("input");
+    fadeChoice.type = "checkbox";
+    fadeChoice.checked = true;
+    const fadeLabel = document.createElement("label");
+    fadeLabel.append(fadeChoice, document.createTextNode(" Intro and outro fade"));
+    const saveFinish = document.createElement("button");
+    saveFinish.type = "button";
+    saveFinish.className = "secondary";
+    saveFinish.textContent = "Save finishing options";
+    saveFinish.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status);
+    const finishState = document.createElement("span");
+    const srt = document.createElement("a");
+    srt.href = "/api/creator/projects/" + project.id + "/captions.srt";
+    srt.textContent = "Download approximate SRT captions";
+    srt.setAttribute("download", "creator_" + project.id + ".srt");
+    finishBox.append(finishTitle,timingNote,subLabel,fadeLabel,saveFinish,finishState,document.createTextNode(" "),srt);
+    visualBox.append(finishBox);
+    request("GET", "/api/creator/projects/" + project.id + "/captions/options").then(result => {
+      if(selected !== project.id) return;
+      subtitleChoice.checked = result.settings.captions;
+      fadeChoice.checked = result.settings.fade_edges;
+    }).catch(err => {if(selected===project.id) finishState.textContent=err.message;});
+    saveFinish.onclick = async () => {
+      saveFinish.disabled = true;
+      try {
+        await request("PUT", "/api/creator/projects/" + project.id + "/captions/options",
+          {captions:subtitleChoice.checked,fade_edges:fadeChoice.checked});
+        say("Finishing preferences saved. Your next export will use these settings.");
+        openProject(project.id);
+      } catch(err) {say(err.message);saveFinish.disabled=false;}
+    };
     const musicRow = document.createElement("div");
     musicRow.className = "card";
     const musicTitle = document.createElement("h4");
