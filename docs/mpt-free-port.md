@@ -71,12 +71,34 @@ loggers and multi-provider request code. The existing clipper search is reused
 without changing its routes or API responses. The 946-line revision renderer
 remains the direct upstream code copy.
 
+## Creator Studio captions and finishing
+
+The immutable upstream MoneyPrinterTurbo revision renderer is still responsible
+for scene composition, voice, background music and its verified render cache.
+`clipper/creator_finish_api.py` applies **opt-in-derived** FFmpeg finishing
+to a separate file under `data/creator/<id>/finished/`. The original cached
+render and the clipper's existing video output are unchanged.
+
+The implementation **reuses the original clipper's ASS subtitle builder**,
+rather than copying MoneyPrinterTurbo's entire MoviePy/TextClip subtitle
+pipeline. A Creator Studio script/narration can export SRT captions or burn
+them into the final MP4. Captions use approximate word timing distributed
+within measured TTS segment boundaries; Kokoro and similar speech backends
+do not supply precise word-level timing. No karaoke synchronization is
+claimed. Exact word sync would require a follow-up local Whisper alignment
+step. Finishing options also provide short **start/end fades**; this does
+**not** implement crossfades or animation between scenes.
+
+Options may be switched off in Creator Studio. Users can download the
+original unmodified upstream render when both are off. This stage requires
+an FFmpeg build with libass support when burning captions.
+
 ## Still missing compared with MoneyPrinterTurbo
 
 - Visual analysis of downloaded footage, additional free providers
   beyond Pixabay, and more advanced per-scene footage selection
 - Local image synthesis and practical model-tested text-to-video generation
-- Creator Studio subtitle compositing and advanced transitions
+- Precise word-aligned subtitle timing and advanced scene-to-scene transitions
 - Automated batch rendering / topic queues and social publishing
 - A fully unified editor timeline with reversible B-roll and captions
 - Image-only animated scenes and automatic soundtrack recommendations
