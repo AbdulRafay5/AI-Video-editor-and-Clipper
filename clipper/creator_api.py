@@ -137,6 +137,8 @@ def _run_script(pid):
             conn.execute("UPDATE creator_stages SET status='done', artifact_json=?, error=NULL, "
                          "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='script'",
                          (json.dumps(script, ensure_ascii=False), pid))
+            conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
+                         "WHERE project_id=? AND stage!='script'", (pid,))
     except Exception as exc:
         log.exception("Creator script failed for project %s", pid)
         detail = str(exc)[:300] if isinstance(exc, (ValueError, llm.LLMError)) else "Script generation failed; see the local log."
