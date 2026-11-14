@@ -636,11 +636,17 @@
     const autoMusic=document.createElement("select");
     for(const [value,label] of [["keep","Keep selected music / none"],
                                 ["instrumental","Create free local instrumental if none selected"],
+                                ["neural","Generate MusicGen neural soundtrack if none selected"],
                                 ["none","No music"]]){
       const option=document.createElement("option");option.value=value;option.textContent=label;
       autoMusic.append(option);
     }
     musicLabel.append(autoMusic);
+    const autoModelLabel=document.createElement("label");
+    const autoModelConsent=document.createElement("input");
+    autoModelConsent.type="checkbox";
+    autoModelLabel.append(autoModelConsent,document.createTextNode(
+      " Allow first-use download of local MusicGen weights (only if neural music is selected)"));
     const startAuto=document.createElement("button");
     startAuto.type="button";
     startAuto.textContent="Generate video automatically";
@@ -648,7 +654,7 @@
       "sourcing_visuals","aligning_captions","generating_music"].includes(project.status);
     const autoMessage=document.createElement("p");
     autoMessage.className="muted";
-    autoPanel.append(autoTitle,autoDesc,stockApproval,alignLabel,musicLabel,startAuto,autoMessage);
+    autoPanel.append(autoTitle,autoDesc,stockApproval,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage);
     visualBox.append(autoPanel);
     async function refreshAuto(){
       try{
@@ -679,7 +685,8 @@
         await request("POST","/api/creator/projects/"+project.id+"/auto/start",{
           approve_stock_download:autoStock.checked,
           align_captions:autoAlign.checked,
-          music:autoMusic.value
+          music:autoMusic.value,
+          approve_model_download:autoModelConsent.checked
         });
         say("Automatic video production started. The job status shows each stage.");
         await refreshAuto();
