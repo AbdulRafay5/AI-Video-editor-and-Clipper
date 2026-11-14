@@ -134,33 +134,69 @@
     if(!project.script) return;
     const voiceBox = document.createElement("div");
     voiceBox.className = "card";
+
     const voiceTitle = document.createElement("h4");
-    voiceTitle.textContent = "Free offline narration";
+    voiceTitle.textContent = "Neural narration · free";
     const voiceInfo = document.createElement("p");
     voiceInfo.className = "muted";
-    voiceInfo.textContent = "Windows built-in offline speech or a configured local Piper model. No API key, no cloud calls.";
+    voiceInfo.textContent = "Kokoro runs locally; Edge TTS uses the Internet without an API key. Piper and Windows voices remain available.";
+    const engineLabel = document.createElement("label");
+    engineLabel.textContent = "Voice engine ";
+    const engineSelect = document.createElement("select");
+    engineSelect.setAttribute("aria-label", "Narration engine");
+    engineLabel.append(engineSelect);
+    const voiceLabel = document.createElement("label");
+    voiceLabel.textContent = "Voice ";
+    const voiceSelect = document.createElement("select");
+    voiceSelect.setAttribute("aria-label", "Narration voice");
+    voiceLabel.append(voiceSelect);
     const voiceButton = document.createElement("button");
     voiceButton.type = "button";
-    voiceButton.disabled = ["generating_script","generating_narration"].includes(project.status);
+    voiceButton.disabled = true;
     voiceButton.textContent = project.stages.narration?.status === "done" ? "Regenerate narration" : "Generate narration";
+    let catalog = [];
+    function syncVoiceOptions() {
+      const chosen = catalog.find(e => e.name === engineSelect.value);
+      voiceSelect.replaceChildren();
+      if (!chosen) return;
+      for (const voice of chosen.voices) {
+        const option = document.createElement("option");
+        option.value = voice;
+        option.textContent = voice;
+        voiceSelect.append(option);
+      }
+      if(chosen.voices.includes(chosen.voice)) voiceSelect.value = chosen.voice;
+      voiceInfo.textContent = chosen.description + (chosen.online
+        ? " · Free, Internet connection required" : " · Free, runs locally");
+      voiceButton.disabled = !chosen.ready || ["generating_script","generating_narration"].includes(project.status);
+    }
+    engineSelect.addEventListener("change", syncVoiceOptions);
+    const audioList = document.createElement("div");
+    voiceBox.append(voiceTitle, voiceInfo, engineLabel, voiceLabel, voiceButton, audioList);
+    container.append(voiceBox);
+    request("GET", "/api/creator/narration/capabilities").then(data => {
+      if(selected !== project.id) return;
+      catalog = data.engines || [];
+      engineSelect.replaceChildren();
+      for (const engine of catalog) {
+        const option = document.createElement("option");
+        option.value = engine.name;
+        option.textContent = engine.name + (engine.ready ? "" : " (not configured)");
+        engineSelect.append(option);
+      }
+      engineSelect.value = data.default || catalog[0]?.name || "";
+      syncVoiceOptions();
+    }).catch(err => { if(selected===project.id) voiceInfo.textContent = err.message; });
     voiceButton.onclick = async () => {
-      if(project.stages.narration?.status === "done" && !confirm("Replace the current narration with your saved script?")) return;
+      if(project.stages.narration?.status === "done" && !confirm("Regenerate the current narration from the saved script?")) return;
       voiceButton.disabled = true;
       try {
-        const result = await request("POST", "/api/creator/projects/" + project.id + "/narration/generate");
-        say("Generating each narration segment locally...");
+        const selection = {engine:engineSelect.value, voice:voiceSelect.value};
+        await request("POST", "/api/creator/projects/" + project.id + "/narration/generate", selection);
+        say("Generating narration with " + selection.engine + "...");
         openProject(project.id);
       } catch(err) { say(err.message); voiceButton.disabled=false; }
     };
-    const audioList = document.createElement("div");
-    voiceBox.append(voiceTitle, voiceInfo, voiceButton, audioList);
-    container.append(voiceBox);
-    fetch("/api/creator/narration/capabilities").then(r => r.json()).then(d => {
-      if(selected !== project.id) return;
-      voiceInfo.textContent = d.engine.description + (d.engine.ready
-        ? " · " + d.engine.voice + " · free, offline" : " · configure before generating");
-      if(!d.engine.ready) voiceButton.disabled = true;
-    }).catch(() => {});
     if(project.stages.narration?.status === "done") {
       request("GET", "/api/creator/projects/" + project.id + "/narration").then(data => {
         if(selected !== project.id || !data.narration?.artifact) return;
