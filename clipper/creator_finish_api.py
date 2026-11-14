@@ -200,10 +200,23 @@ def finish_project(pid, base_mp4, revision, finished_root):
     finished_root = Path(finished_root)
     finished_root.mkdir(parents=True, exist_ok=True)
     dest = finished_root / f"finished_{revision}.mp4"
-    from . import creator_render_api as render
-    spec = render._engine(pid).revision(revision)
-    canvas_width = int(spec["settings"]["width"])
-    canvas_height = int(spec["settings"]["height"])
+    # Read the actual final canvas so finishing also supports historical MP4
+    # inputs and doesn't demand the current revision for the default path.
+    probe = shutil.which("ffprobe")
+    if not probe:
+        raise FinishError("FFprobe is required for accurate subtitle sizing.")
+    try:
+        dimensions = subprocess.run(
+            [probe, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "json",
+             str(Path(base_mp4).resolve())],
+            capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+        info = json.loads(dimensions.stdout)["streams"][0]
+        canvas_width, canvas_height = int(info["width"]), int(info["height"])
+        if dimensions.returncode or canvas_width <= 0 or canvas_height <= 0:
+            raise FinishError("Base video dimensions unavailable.")
+    except (OSError, ValueError, KeyError, IndexError, subprocess.TimeoutExpired) as exc:
+        raise FinishError("Cannot read base video dimensions.") from exc
     with tempfile.TemporaryDirectory(prefix="creator-finish-", dir=finished_root) as temp:
         folder = Path(temp)
         filters = []
