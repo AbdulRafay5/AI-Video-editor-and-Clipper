@@ -237,6 +237,44 @@
     visualHint.textContent = "Upload MP4, MOV or MKV footage for the opening, each scene and ending. No paid services or automatic downloads.";
     const visualList = document.createElement("div");
     visualBox.append(visualTitle, visualHint, visualList);
+    const stockPanel = document.createElement("section");
+    stockPanel.className = "card";
+    const stockTitle = document.createElement("h4");
+    stockTitle.textContent = "Find free footage automatically";
+    const stockDescription = document.createElement("p");
+    stockDescription.className = "muted";
+    stockDescription.textContent =
+      "Uses your scene descriptions and a free Pixabay API key. Fills up to six missing scenes per request; existing footage is kept. Matches are based on search metadata, not visual inspection, so review them before publishing.";
+    const stockButton = document.createElement("button");
+    stockButton.type = "button";
+    stockButton.textContent = "Find footage for missing scenes";
+    stockButton.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals"].includes(project.status);
+    const stockStatus = document.createElement("p");
+    stockStatus.className = "muted";
+    stockPanel.append(stockTitle,stockDescription,stockButton,stockStatus);
+    visualBox.append(stockPanel);
+    if(project.status === "sourcing_visuals") stockStatus.textContent =
+      "Finding and downloading free footage. Refresh this project to see the results.";
+    else {
+      request("GET","/api/creator/projects/" + project.id + "/stock").then(data => {
+        if(selected !== project.id || !data.report) return;
+        const applied = Object.keys(data.report.applied || {}).length;
+        const errors = Object.keys(data.report.errors || {}).length;
+        stockStatus.textContent = "Last run: " + applied + " scene(s) filled; " + errors +
+          " unavailable. You can upload footage manually for any missing scenes.";
+      }).catch(()=>{});
+    }
+    stockButton.onclick = async () => {
+      if(!confirm("Search Pixabay and download up to six free stock clips for missing scenes? Footage may need manual review for relevance and licence requirements.")) return;
+      stockButton.disabled=true;
+      try {
+        const outcome = await request("POST",
+          "/api/creator/projects/" + project.id + "/stock/auto-fill",
+          {approve_download:true});
+        say("Stock search started for " + outcome.requested.length + " missing scenes.");
+        await openProject(project.id);
+      } catch(err) {say(err.message);stockButton.disabled=false;}
+    };
     const musicRow = document.createElement("div");
     musicRow.className = "card";
     const musicTitle = document.createElement("h4");
