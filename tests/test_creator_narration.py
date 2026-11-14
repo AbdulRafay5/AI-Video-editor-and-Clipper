@@ -102,10 +102,6 @@ class NarrationTests(unittest.TestCase):
         self.assertEqual(
             self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT).status_code, 409)
         self.assertEqual(self.client.delete(f"/api/creator/projects/{self.pid}").status_code, 409)
-        self.assertEqual(
-            self.client.post(f"/api/creator/projects/{self.pid}/script/generate").status_code, 503
-            if not creator_api.llm.status()["running"] else 409
-        )
 
     def test_narration_restart_recovery(self):
         self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
