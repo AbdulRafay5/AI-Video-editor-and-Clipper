@@ -9,7 +9,7 @@
   area.innerHTML = `
     <h2>Creator Studio</h2>
     <p class="muted">Start from an idea, not a video upload. Local Ollama generates an editable script and scenes.
-    Narration, visuals and rendering will be added as separate production stages.</p>
+    Generate offline narration from your script. Visuals and rendering are the next production stages.</p>
     <div class="form-grid">
       <label>Video topic <textarea id="creator-topic" rows="2" maxlength="300" placeholder="Explain how a small business got its first 100 customers"></textarea></label>
       <label>Audience <input type="text" id="creator-audience" maxlength="100" value="general"></label>
@@ -71,12 +71,12 @@
       const {project} = await request("GET", "/api/creator/projects/" + id);
       if(selected !== id) return;
       renderProject(project);
-      if(project.status === "generating_script") {
+      if(["generating_script","generating_narration"].includes(project.status)) {
         polling=setInterval(async () => {
           if(selected !== id) return stopPolling();
           try {
             const {project:p} = await request("GET", "/api/creator/projects/" + id);
-            if(p.status !== "generating_script") {
+            if(!["generating_script","generating_narration"].includes(p.status)) {
               stopPolling();
               renderProject(p);
               refreshList();
@@ -106,7 +106,7 @@
     buttons.className = "actions";
     const generate = document.createElement("button");
     generate.type = "button";
-    generate.disabled = project.status === "generating_script";
+    generate.disabled = ["generating_script","generating_narration"].includes(project.status);
     generate.textContent = project.script ? "Regenerate script" : "Generate script with local Ollama";
     generate.onclick = async () => {
       if(project.script && !confirm("Replace the current script? Save a copy elsewhere if needed.")) return;
@@ -121,7 +121,7 @@
     const remove = document.createElement("button");
     remove.type = "button"; remove.className = "secondary";
     remove.textContent = "Delete project";
-    remove.disabled = project.status === "generating_script";
+    remove.disabled = ["generating_script","generating_narration"].includes(project.status);
     remove.onclick = async () => {
       if(!confirm("Delete this original video project?")) return;
       try {
@@ -132,6 +132,65 @@
     buttons.append(remove);
     container.append(buttons);
     if(!project.script) return;
+    const voiceBox = document.createElement("div");
+    voiceBox.className = "card";
+    const voiceTitle = document.createElement("h4");
+    voiceTitle.textContent = "Free offline narration";
+    const voiceInfo = document.createElement("p");
+    voiceInfo.className = "muted";
+    voiceInfo.textContent = "Windows built-in offline speech or a configured local Piper model. No API key, no cloud calls.";
+    const voiceButton = document.createElement("button");
+    voiceButton.type = "button";
+    voiceButton.disabled = ["generating_script","generating_narration"].includes(project.status);
+    voiceButton.textContent = project.stages.narration?.status === "done" ? "Regenerate narration" : "Generate narration";
+    voiceButton.onclick = async () => {
+      if(project.stages.narration?.status === "done" && !confirm("Replace the current narration with your saved script?")) return;
+      voiceButton.disabled = true;
+      try {
+        const result = await request("POST", "/api/creator/projects/" + project.id + "/narration/generate");
+        say("Generating each narration segment locally...");
+        openProject(project.id);
+      } catch(err) { say(err.message); voiceButton.disabled=false; }
+    };
+    const audioList = document.createElement("div");
+    voiceBox.append(voiceTitle, voiceInfo, voiceButton, audioList);
+    container.append(voiceBox);
+    fetch("/api/creator/narration/capabilities").then(r => r.json()).then(d => {
+      if(selected !== project.id) return;
+      voiceInfo.textContent = d.engine.description + (d.engine.ready
+        ? " · " + d.engine.voice + " · free, offline" : " · configure before generating");
+      if(!d.engine.ready) voiceButton.disabled = true;
+    }).catch(() => {});
+    if(project.stages.narration?.status === "done") {
+      request("GET", "/api/creator/projects/" + project.id + "/narration").then(data => {
+        if(selected !== project.id || !data.narration?.artifact) return;
+        const artifact = data.narration.artifact;
+        const note = document.createElement("p");
+        note.textContent = "Narration duration: " + Number(artifact.duration).toFixed(1)
+          + " seconds · " + artifact.segments.length + " parts";
+        const player = document.createElement("audio");
+        player.controls = true;
+        player.preload = "none";
+        player.src = "/api/creator/projects/" + project.id + "/narration/audio";
+        const download = document.createElement("a");
+        download.href = player.src;
+        download.textContent = "Download narration WAV";
+        download.setAttribute("download", "narration.wav");
+        audioList.append(note, player, document.createTextNode(" "), download);
+        artifact.segments.forEach((segment, index) => {
+          const details = document.createElement("details");
+          const summary = document.createElement("summary");
+          summary.textContent = (segment.kind === "scene" ? "Scene " + (segment.scene_index + 1) : segment.kind)
+            + " · " + Number(segment.start).toFixed(1) + "–" + Number(segment.end).toFixed(1) + "s";
+          const audio = document.createElement("audio");
+          audio.controls = true;
+          audio.preload = "none";
+          audio.src = player.src + "?segment=" + index;
+          details.append(summary, audio);
+          audioList.append(details);
+        });
+      }).catch(err => { if(selected===project.id) say(err.message); });
+    }
     const script = project.script;
     const [titleLabel, titleInput] = field("Title", script.title, 1);
     const [hookLabel, hookInput] = field("Opening hook", script.hook, 2);
