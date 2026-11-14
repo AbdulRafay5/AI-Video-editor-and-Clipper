@@ -506,6 +506,94 @@
         openProject(project.id);
       }catch(err){say(err.message);usePreset.disabled=false;}
     };
+    const neuralPanel=document.createElement("section");
+    neuralPanel.className="card";
+    const neuralTitle=document.createElement("h4");
+    neuralTitle.textContent="Neural AI soundtrack · local MusicGen Small";
+    const neuralExplain=document.createElement("p");
+    neuralExplain.className="muted";
+    neuralExplain.textContent="Generate actual AI-composed instrumental audio from a text prompt. Defaults to a video-aware mood prompt and matches the narration duration. The local model creates an 8-second neural sample and crossfades its repetitions for longer videos; this is not full-length unique composition.";
+    const neuralMood=document.createElement("select");
+    for(const mood of ["cinematic","calm","uplifting","suspenseful","energetic","ambient"]){
+      const opt=document.createElement("option");opt.value=mood;opt.textContent=mood;
+      neuralMood.append(opt);
+    }
+    const neuralMoodLabel=document.createElement("label");
+    neuralMoodLabel.textContent="Soundtrack mood ";
+    neuralMoodLabel.append(neuralMood);
+    const neuralLengthLabel=document.createElement("label");
+    neuralLengthLabel.textContent="Soundtrack length ";
+    const neuralLength=document.createElement("select");
+    for(const [value,label] of [["match","Match narration (recommended)"],["15","15 seconds"],
+      ["30","30 seconds"],["60","60 seconds"],["90","90 seconds"],["120","120 seconds"],
+      ["180","180 seconds"]]){
+      const opt=document.createElement("option");opt.value=value;opt.textContent=label;
+      neuralLength.append(opt);
+    }
+    neuralLengthLabel.append(neuralLength);
+    const neuralPromptLabel=document.createElement("label");
+    neuralPromptLabel.textContent="Music prompt (optional; blank = match this video's topic and scenes)";
+    const neuralPrompt=document.createElement("textarea");
+    neuralPrompt.rows=3;
+    neuralPrompt.maxLength=500;
+    neuralPrompt.placeholder="e.g. Melancholic dream-pop instrumental with soft drums, shimmer guitars, no singing";
+    neuralPromptLabel.append(neuralPrompt);
+    const downloadLabel=document.createElement("label");
+    const downloadConsent=document.createElement("input");
+    downloadConsent.type="checkbox";
+    downloadLabel.append(downloadConsent,document.createTextNode(" Allow free first-use MusicGen model download from Hugging Face (large download)"));
+    const previewNeural=document.createElement("button");
+    previewNeural.type="button";previewNeural.className="secondary";
+    previewNeural.textContent="Preview music prompt";
+    const generateNeural=document.createElement("button");
+    generateNeural.type="button";
+    generateNeural.textContent="Generate neural soundtrack locally";
+    generateNeural.disabled=["generating_script","generating_narration","rendering",
+      "sourcing_visuals","aligning_captions","generating_music"].includes(project.status);
+    const neuralStatus=document.createElement("p");
+    neuralStatus.className="muted";
+    neuralPanel.append(neuralTitle,neuralExplain,neuralMoodLabel,neuralLengthLabel,
+      neuralPromptLabel,downloadLabel,previewNeural,generateNeural,neuralStatus);
+    musicRow.append(neuralPanel);
+    function neuralPayload(){
+      return {mood:neuralMood.value,prompt:neuralPrompt.value,
+        duration:neuralLength.value==="match"?"match":Number(neuralLength.value),
+        download_model:downloadConsent.checked};
+    }
+    previewNeural.onclick=async()=>{
+      try{
+        const data=await request("POST",
+          "/api/creator/projects/"+project.id+"/music/neural/preview",neuralPayload());
+        neuralStatus.textContent="Prompt: "+data.prompt+
+          " | Soundtrack: "+data.duration+"s (looped neural sample: "+data.sample_seconds+"s)";
+      }catch(err){neuralStatus.textContent=err.message;}
+    };
+    generateNeural.onclick=async()=>{
+      if(!confirm("Run free local MusicGen Small on this machine? It can use substantial RAM/VRAM, disk space and CPU time.")) return;
+      generateNeural.disabled=true;
+      try{
+        const outcome=await request("POST",
+          "/api/creator/projects/"+project.id+"/music/neural/generate",neuralPayload());
+        say("Local MusicGen started for "+outcome.duration+" seconds of soundtrack.");
+        openProject(project.id);
+      }catch(err){neuralStatus.textContent=err.message;generateNeural.disabled=false;}
+    };
+    request("GET","/api/creator/music/neural/capabilities").then(info=>{
+      if(selected!==project.id) return;
+      if(!info.installed){
+        neuralStatus.textContent="Optional model dependencies are not installed. See docs/free-musicgen.md. Other music features still work.";
+      }
+    }).catch(()=>{});
+    request("GET","/api/creator/projects/"+project.id+"/music/neural").then(data=>{
+      if(selected!==project.id) return;
+      if(data.status==="running"||project.status==="generating_music")
+        neuralStatus.textContent="Local MusicGen is generating. This may use substantial CPU/GPU time; the project will refresh on completion.";
+      else if(data.status==="failed")
+        neuralStatus.textContent="Last generation failed: "+(data.report?.error||"Check local logs")+". Your previous music remains unchanged.";
+      else if(data.status==="done")
+        neuralStatus.textContent="Last neural soundtrack generated: "+data.report.duration+"s using "+data.report.device+
+          ". "+(data.report.looped?"Short neural motif is crossfaded to fit the video.":"");
+    }).catch(()=>{});
     const editPanel = document.createElement("section");
     editPanel.className = "card";
     const editTitle = document.createElement("h4");
