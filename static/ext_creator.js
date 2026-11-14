@@ -292,6 +292,16 @@
     fadeChoice.checked = true;
     const fadeLabel = document.createElement("label");
     fadeLabel.append(fadeChoice, document.createTextNode(" Intro and outro fade"));
+    const transitionLabel = document.createElement("label");
+    transitionLabel.textContent = "Between-scene transition ";
+    const transitionSelect = document.createElement("select");
+    for (const [value, label] of [["cut","Hard cut"],["fade","Crossfade"],["slideleft","Slide left"],
+      ["slideright","Slide right"],["zoomin","Zoom in"]]) {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = label;
+      transitionSelect.append(option);
+    }
+    transitionLabel.append(transitionSelect);
     const saveFinish = document.createElement("button");
     saveFinish.type = "button";
     saveFinish.className = "secondary";
@@ -302,7 +312,7 @@
     srt.href = "/api/creator/projects/" + project.id + "/captions.srt";
     srt.textContent = "Download approximate SRT captions";
     srt.setAttribute("download", "creator_" + project.id + ".srt");
-    finishBox.append(finishTitle,timingNote,subLabel,fadeLabel,saveFinish,finishState,document.createTextNode(" "),srt);
+    finishBox.append(finishTitle,timingNote,subLabel,fadeLabel,transitionLabel,saveFinish,finishState,document.createTextNode(" "),srt);
     const alignButton = document.createElement("button");
     alignButton.type = "button";
     alignButton.className = "secondary";
@@ -327,12 +337,13 @@
       if(selected !== project.id) return;
       subtitleChoice.checked = result.settings.captions;
       fadeChoice.checked = result.settings.fade_edges;
+      transitionSelect.value = result.settings.transition || "cut";
     }).catch(err => {if(selected===project.id) finishState.textContent=err.message;});
     saveFinish.onclick = async () => {
       saveFinish.disabled = true;
       try {
         await request("PUT", "/api/creator/projects/" + project.id + "/captions/options",
-          {captions:subtitleChoice.checked,fade_edges:fadeChoice.checked});
+          {captions:subtitleChoice.checked,fade_edges:fadeChoice.checked,transition:transitionSelect.value});
         say("Finishing preferences saved. Your next export will use these settings.");
         openProject(project.id);
       } catch(err) {say(err.message);saveFinish.disabled=false;}
@@ -383,6 +394,70 @@
         say("Background music removed from future renders.");
         openProject(project.id);
       } catch(err) {say(err.message);musicRemove.disabled=false;}
+    };
+    const presetPanel = document.createElement("section");
+    presetPanel.className = "card";
+    const presetTitle = document.createElement("h4");
+    presetTitle.textContent = "Free music presets and original instrumentals";
+    const moodSelect = document.createElement("select");
+    for(const mood of ["calm","uplifting","cinematic","ambient"]) {
+      const option=document.createElement("option");
+      option.value=mood;option.textContent=mood;
+      moodSelect.append(option);
+    }
+    const generateMusic = document.createElement("button");
+    generateMusic.type="button";generateMusic.className="secondary";
+    generateMusic.textContent="Generate original instrumental";
+    generateMusic.disabled=["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions"].includes(project.status);
+    const presetSelect = document.createElement("select");
+    const usePreset = document.createElement("button");
+    usePreset.type="button";usePreset.className="secondary";usePreset.textContent="Use saved preset";
+    const savePreset = document.createElement("button");
+    savePreset.type="button";savePreset.className="secondary";savePreset.textContent="Save current track as preset";
+    const presetInfo = document.createElement("p");
+    presetInfo.className="muted";
+    presetInfo.textContent="Locally synthesized background pads (not cloud AI music). You can also reuse any music you upload.";
+    presetPanel.append(presetTitle,presetInfo,moodSelect,generateMusic,presetSelect,usePreset,savePreset);
+    musicRow.append(presetPanel);
+    async function refreshPresets() {
+      try {
+        const data = await request("GET","/api/creator/music/presets");
+        if(selected!==project.id) return;
+        presetSelect.replaceChildren();
+        for(const name of ["random",...(data.saved||[])]) {
+          const opt=document.createElement("option");
+          opt.value=name;opt.textContent=name==="random"?"Random saved track":name;
+          presetSelect.append(opt);
+        }
+      }catch(err){presetInfo.textContent=err.message;}
+    }
+    refreshPresets();
+    generateMusic.onclick=async()=>{
+      generateMusic.disabled=true;
+      try {
+        await request("POST","/api/creator/projects/"+project.id+"/music/generate",
+          {mood:moodSelect.value,seconds:30});
+        say("Free instrumental created. It is used on the next render.");
+        openProject(project.id);
+      }catch(err){say(err.message);generateMusic.disabled=false;}
+    };
+    savePreset.onclick=async()=>{
+      savePreset.disabled=true;
+      try {
+        await request("POST","/api/creator/projects/"+project.id+"/music/save-preset");
+        say("Track saved to reusable music library.");
+        await refreshPresets();
+      }catch(err){say(err.message);}
+      savePreset.disabled=false;
+    };
+    usePreset.onclick=async()=>{
+      usePreset.disabled=true;
+      try {
+        await request("POST","/api/creator/projects/"+project.id+"/music/select-preset",
+          {filename:presetSelect.value});
+        say("Music preset selected.");
+        openProject(project.id);
+      }catch(err){say(err.message);usePreset.disabled=false;}
     };
     const renderButton = document.createElement("button");
     renderButton.type = "button";
