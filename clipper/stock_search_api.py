@@ -14,7 +14,7 @@ import urllib.request
 
 from flask import Blueprint, jsonify, request
 
-from . import broll_api, db, highlights, llm, video
+from . import broll_api, db, highlights, llm, stock_cache, video
 
 bp = Blueprint("stock_search", __name__)
 PIXABAY_ENDPOINT = "https://pixabay.com/api/videos/"
@@ -162,17 +162,24 @@ def search_pixabay():
     if not key:
         return jsonify(error="Pixabay search needs a free PIXABAY_API_KEY environment variable.",
                        provider="pixabay", configured=False), 503
-    url = PIXABAY_ENDPOINT + "?" + urllib.parse.urlencode({
-        "key": key, "q": query, "per_page": 20, "video_type": "film"})
-    try:
+    filters = {"video_type": "film", "per_page": 20}
+
+    def search_remote():
+        url = PIXABAY_ENDPOINT + "?" + urllib.parse.urlencode({
+            "key": key, "q": query, **filters})
         req = urllib.request.Request(url, headers={"User-Agent": "LocalVideoEditor/1.0"})
         with urllib.request.urlopen(req, timeout=25) as resp:
             data = json.loads(resp.read(2 * 1024 * 1024).decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        return jsonify(error="Pixabay search failed; retry later or upload local footage."), 502
-    return jsonify(provider="pixabay", results=_parse_pixabay(data),
-                   query=query, license_url="https://pixabay.com/service/license-summary/")
+        if not isinstance(data, dict) or not isinstance(data.get("hits"), list):
+            raise ValueError("Unexpected Pixabay response.")
+        return _parse_pixabay(data)
 
+    try:
+        results, cache_hit = stock_cache.cached_search("pixabay", query, filters, search_remote)
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        return jsonify(error="Pixabay search failed; retry later or upload local footage."), 502
+    return jsonify(provider="pixabay", results=results, cached=cache_hit,
+                   query=query, license_url="https://pixabay.com/service/license-summary/")
 
 def _trusted_pixabay_url(url):
     try:
