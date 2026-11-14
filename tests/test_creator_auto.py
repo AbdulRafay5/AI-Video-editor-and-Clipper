@@ -166,7 +166,7 @@ class AutomaticCreatorTests(unittest.TestCase):
         status = self._start_and_run({"approve_stock_download": False})
         self.assertEqual(status["status"], "blocked")
         self.assertEqual(status["step"], "footage")
-        self.assertIn("Footage download not approved", status["report"]["error"])
+        self.assertIn("Approve stock downloads or enable local AI image generation", status["report"]["error"])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "Real FFmpeg renderer unavailable")
