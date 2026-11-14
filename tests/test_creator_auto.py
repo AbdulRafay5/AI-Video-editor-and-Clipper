@@ -124,6 +124,18 @@ class AutomaticCreatorTests(unittest.TestCase):
         response = self.client.post(self.endpoint + "/start", json={})
         self.assertEqual(response.status_code, 409)
 
+    def test_visual_mode_validation_keeps_stock_and_ai_separate(self):
+        self.assertEqual(auto.validate({"visual_mode": "stock"})["visual_mode"], "stock")
+        self.assertEqual(auto.validate({"visual_mode": "ai"})["use_ai_images"], True)
+        for body in (
+            {"visual_mode": "invalid"},
+            {"visual_mode": "ai", "approve_stock_download": True},
+            {"visual_mode": "stock", "use_ai_images": True},
+        ):
+            self.assertEqual(self.client.post(
+                self.endpoint + "/start", json=body).status_code, 400)
+        self.assertEqual(auto.validate({})["visual_mode"], "legacy")
+
     def test_invalid_requests_and_missing_project(self):
         self.assertEqual(self.client.post(self.endpoint + "/start", json={
             "approve_stock_download": "yes"}).status_code, 400)
@@ -260,6 +272,46 @@ class AutomaticCreatorTests(unittest.TestCase):
         self.assertEqual(status["status"], "done", status)
         self.assertIn("scene_0", render._visuals(self.pid))
         self.assertEqual(self.client.get(f"/api/creator/projects/{self.pid}/render/file").status_code,200)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Real FFmpeg renderer unavailable")
+    def test_ai_visual_mode_replaces_all_existing_stock_and_never_calls_stock(self):
+        self._add_prepared_narration_and_footage(real_video=True)
+        old = render._visuals(self.pid).copy()
+        original = render._root(self.pid) / "visuals" / old["scene_0"]
+        all_calls = []
+
+        def fake_image(prompt, target, **kwargs):
+            target.write_bytes(b"simulated SD-Turbo PNG")
+            return {"model": local_imagegen.MODEL}
+
+        def fake_animation(source, target, **kwargs):
+            shutil.copyfile(original, target)
+            return target
+
+        def no_stock(*args, **kwargs):
+            all_calls.append("stock")
+            raise AssertionError("AI-only mode must never search stock providers.")
+
+        with patch.object(local_imagegen, "dependencies_ready", return_value=True), \
+             patch.object(local_imagegen, "generate_image", side_effect=fake_image), \
+             patch.object(local_imagegen, "animate_still", side_effect=fake_animation), \
+             patch.object(images._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch.object(render._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch("clipper.creator_providers.configured", side_effect=no_stock), \
+             patch.object(stock._executor, "submit", side_effect=no_stock):
+            result = self._start_and_run({
+                "visual_mode": "ai", "approve_image_model_download": False,
+                "music": "none"})
+        self.assertEqual(result["status"], "done", result)
+        self.assertEqual(result["step"], "review")
+        self.assertEqual(all_calls, [])
+        visuals = render._visuals(self.pid)
+        self.assertEqual(set(visuals), set(old))
+        for slot in old:
+            self.assertNotEqual(visuals[slot], old[slot])
+        self.assertEqual(self.client.get(
+            f"/api/creator/projects/{self.pid}/render/file").status_code, 200)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "Real FFmpeg renderer unavailable")
