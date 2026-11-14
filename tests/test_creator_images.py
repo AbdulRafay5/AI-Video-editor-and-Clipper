@@ -103,6 +103,83 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(json.loads(stage["artifact_json"])["sources"]["scene_0"]["provider"],
                          "local-sd-turbo")
 
+    def test_ai_only_failure_does_not_replace_any_saved_visuals(self):
+        folder = creator._root(self.pid) / "visuals"
+        folder.mkdir(parents=True, exist_ok=True)
+        old = {slot: f"clip_stock_{i}.mp4" for i, slot in enumerate(
+            ("hook", "scene_0", "closing"))}
+        for name in old.values():
+            (folder / name).write_bytes(b"original stock media")
+        old_artifact = {"clips": old, "sources": {
+            slot: {"provider": "pexels"} for slot in old}}
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='visuals'",
+                   (json.dumps(old_artifact), self.pid))
+        calls = [0]
+        def fail_second(prompt, destination, **kw):
+            calls[0] += 1
+            if calls[0] == 2:
+                raise local_imagegen.ImageGenerationError("GPU not available")
+            destination.write_bytes(b"first image bytes")
+            return {"model": local_imagegen.MODEL}
+        def fake_animation(source, target, **kw):
+            target.write_bytes(b"animated mp4 bytes")
+        with patch.object(local_imagegen, "generate_image", side_effect=fail_second), \
+             patch.object(local_imagegen, "animate_still", side_effect=fake_animation):
+            images._generate_all(self.pid, False)
+        current = db.query_one(
+            "SELECT artifact_json FROM creator_stages WHERE project_id=? "
+            "AND stage='visuals'", (self.pid,))
+        self.assertEqual(json.loads(current["artifact_json"]), old_artifact)
+        self.assertEqual(self.client.get(self.path).get_json()["status"], "blocked")
+        self.assertEqual(list(folder.glob("clip_*.png")), [])
+        for name in old.values():
+            self.assertTrue((folder / name).is_file())
+
+    def test_ai_only_generate_all_replaces_selections_atomically(self):
+        folder = creator._root(self.pid) / "visuals"
+        folder.mkdir(parents=True, exist_ok=True)
+        old = {slot: f"clip_old_{i}.mp4" for i, slot in enumerate(
+            ("hook", "scene_0", "closing"))}
+        for name in old.values():
+            (folder / name).write_bytes(b"old footage")
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='visuals'",
+                   (json.dumps({"clips": old}), self.pid))
+        def fake_image(prompt, target, **kw):
+            target.write_bytes(b"new PNG")
+            return {"model": local_imagegen.MODEL}
+        def fake_animation(source, target, **kw):
+            target.write_bytes(b"new MP4")
+        with patch.object(local_imagegen, "generate_image", side_effect=fake_image), \
+             patch.object(local_imagegen, "animate_still", side_effect=fake_animation):
+            images._generate_all(self.pid, False)
+        stage = db.query_one("SELECT artifact_json,status FROM creator_stages "
+                             "WHERE project_id=? AND stage='visuals'", (self.pid,))
+        self.assertEqual(stage["status"], "done")
+        saved = json.loads(stage["artifact_json"])
+        self.assertEqual(set(saved["clips"]), set(old))
+        self.assertTrue(all(saved["clips"][slot] != old[slot] for slot in old))
+        self.assertTrue(all(saved["sources"][slot]["provider"] == "local-sd-turbo"
+                            for slot in old))
+        self.assertTrue(all((folder / name).is_file() for name in old.values()))
+        self.assertEqual(self.client.get(self.path).get_json()["status"], "done")
+
+    def test_replace_existing_mode_accepts_already_complete_project(self):
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='visuals'",
+                   (json.dumps({"clips": {"hook":"clip_old.mp4",
+                                          "scene_0":"clip_two.mp4",
+                                          "closing":"clip_three.mp4"}}), self.pid))
+        with patch.object(local_imagegen, "dependencies_ready", return_value=True), \
+             patch.object(images._executor, "submit") as submit:
+            result = self.client.post(
+                self.path + "/fill", json={
+                    "approve_model_download": False,
+                    "replace_existing": True})
+        self.assertEqual(result.status_code, 202)
+        submit.assert_called_once()
+
     def test_busy_job_rejected(self):
         db.execute("UPDATE creator_projects SET status='generating_images' WHERE id=?",
                    (self.pid,))
