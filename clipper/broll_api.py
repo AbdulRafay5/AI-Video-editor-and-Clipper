@@ -113,7 +113,7 @@ def add_broll(pid):
     except (OSError, ValueError) as exc:
         destination.unlink(missing_ok=True)
         return jsonify(error=str(exc)), 400
-    name = _label(Path(upload.filename.replace("\\\\", "/")).name) or destination.name
+    name = _label(Path(upload.filename.replace(chr(92), "/")).name) or destination.name
     description = _label(request.form.get("description"))
     with _meta_lock:
         meta = _metadata(pid)
