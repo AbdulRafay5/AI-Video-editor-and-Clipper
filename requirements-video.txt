@@ -1,0 +1,11 @@
+# Optional true CogVideoX-2B local text-to-video inference.
+# Install a compatible CUDA-enabled PyTorch build first from pytorch.org.
+# Diffusers pipeline is loaded only when True AI video mode is selected.
+torch>=2.3,<3
+diffusers>=0.30.1,<1
+transformers>=4.44,<5
+accelerate>=0.34,<2
+safetensors>=0.4,<1
+pillow>=10,<13
+imageio>=2.34,<3
+imageio-ffmpeg>=0.5,<1
