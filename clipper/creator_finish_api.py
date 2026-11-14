@@ -72,6 +72,31 @@ def timed_captions(artifact):
                               max_duration=3.5)
 
 
+def project_captions(pid):
+    """Prefer Whisper-measured word timestamps over estimated TTS word positions."""
+    artifact = _narration(pid)
+    row = db.query_one("SELECT artifact_json FROM creator_stages "
+                       "WHERE project_id=? AND stage='captions'", (pid,))
+    data = json.loads(row["artifact_json"]) if row and row["artifact_json"] else {}
+    words = data.get("aligned_words")
+    if (isinstance(words, list) and words and
+            data.get("narration_run_id") == artifact.get("run_id")):
+        clean = []
+        for w in words:
+            if not isinstance(w, dict):
+                continue
+            try:
+                start, end = float(w["start"]), float(w["end"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if 0 <= start < end and isinstance(w.get("word"), str):
+                clean.append({"word": w["word"][:100], "start": start, "end": end})
+        if clean:
+            return cap.build_captions([{"words": clean}], max_words=5,
+                                      max_chars=32, max_duration=3.5), "whisper"
+    return timed_captions(artifact), "estimated"
+
+
 @bp.get("/api/creator/projects/<int:pid>/captions/options")
 def get_options(pid):
     if not db.query_one("SELECT id FROM creator_projects WHERE id=?", (pid,)):
@@ -93,9 +118,13 @@ def set_options(pid):
         if project["status"] in ("generating_script", "generating_narration",
                                  "rendering", "sourcing_visuals"):
             return jsonify(error="Wait until the current stage finishes."), 409
+        old = conn.execute("SELECT artifact_json FROM creator_stages "
+                           "WHERE project_id=? AND stage='captions'", (pid,)).fetchone()
+        previous = json.loads(old["artifact_json"]) if old and old["artifact_json"] else {}
+        previous.update(body)
         conn.execute("UPDATE creator_stages SET status=?, artifact_json=?, error=NULL, "
                      "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='captions'",
-                     ("done" if body["captions"] else "pending", json.dumps(body), pid))
+                     ("done" if body["captions"] else "pending", json.dumps(previous), pid))
         conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
                      "WHERE project_id=? AND stage='render'", (pid,))
     return jsonify(settings=body)
@@ -114,7 +143,7 @@ def download_srt(pid):
     if not db.query_one("SELECT id FROM creator_projects WHERE id=?", (pid,)):
         return jsonify(error="Project not found."), 404
     try:
-        captions = timed_captions(_narration(pid))
+        captions, _ = project_captions(pid)
         content = cap.to_srt(captions)
     except FinishError as exc:
         return jsonify(error=str(exc)), 409
@@ -141,7 +170,7 @@ def finish_project(pid, base_mp4, revision, finished_root):
         filters = []
         if opts["captions"]:
             artifact = _narration(pid)
-            captions = timed_captions(artifact)
+            captions, _ = project_captions(pid)
             style = cap.normalise_style({
                 "font": "Arial", "size_pct": 5.5, "position": "bottom",
                 "highlight_word": False, "margin_pct": 16.0,
