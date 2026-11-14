@@ -26,7 +26,7 @@ _upload_lock = threading.RLock()
 MAX_FOOTAGE = 250 * 1024 * 1024
 VALID_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv"}
 VALID_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac"}
-BUSY = ("generating_script", "generating_narration", "rendering", "sourcing_visuals")
+BUSY = ("generating_script", "generating_narration", "rendering", "sourcing_visuals", "aligning_captions")
 
 
 def _root(pid):
