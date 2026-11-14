@@ -278,7 +278,7 @@
     const finishBox = document.createElement("section");
     finishBox.className = "card";
     const finishTitle = document.createElement("h4");
-    finishTitle.textContent = "Final video subtitles and fades";
+    finishTitle.textContent = "Animated subtitles and video transitions";
     const timingNote = document.createElement("p");
     timingNote.className = "muted";
     timingNote.textContent = "Caption times are estimated from narration segments, not word-aligned. Fades apply to the start and end of the video; scene cuts remain unchanged.";
@@ -302,6 +302,44 @@
       transitionSelect.append(option);
     }
     transitionLabel.append(transitionSelect);
+    const animationLabel = document.createElement("label");
+    animationLabel.textContent = "Caption animation ";
+    const animationSelect = document.createElement("select");
+    for (const [value,label] of [["none","None"],["pop_spring","Spring pop (MoneyPrinterTurbo style)"],["fade","Fade in"]]) {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = label;
+      animationSelect.append(option);
+    }
+    animationLabel.append(animationSelect);
+    const positionLabel = document.createElement("label");
+    positionLabel.textContent = "Caption position ";
+    const positionSelect = document.createElement("select");
+    for (const value of ["bottom","middle","top"]) {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = value;
+      positionSelect.append(option);
+    }
+    positionLabel.append(positionSelect);
+    const sizeLabel = document.createElement("label");
+    sizeLabel.textContent = "Caption size (% of video height) ";
+    const sizeInput = document.createElement("input");
+    sizeInput.type = "number"; sizeInput.min = "2"; sizeInput.max = "12"; sizeInput.step = "0.5";
+    sizeInput.value = "5.5";
+    sizeLabel.append(sizeInput);
+    const textColorLabel = document.createElement("label");
+    textColorLabel.textContent = "Text colour ";
+    const textColorInput = document.createElement("input");
+    textColorInput.type = "color"; textColorInput.value = "#ffffff";
+    textColorLabel.append(textColorInput);
+    const highlightColorLabel = document.createElement("label");
+    highlightColorLabel.textContent = "Highlight colour ";
+    const highlightColorInput = document.createElement("input");
+    highlightColorInput.type = "color"; highlightColorInput.value = "#ffd400";
+    highlightColorLabel.append(highlightColorInput);
+    const highlightChoice = document.createElement("input");
+    highlightChoice.type = "checkbox"; highlightChoice.checked = false;
+    const highlightLabel = document.createElement("label");
+    highlightLabel.append(highlightChoice, document.createTextNode(" Highlight currently spoken word"));
     const saveFinish = document.createElement("button");
     saveFinish.type = "button";
     saveFinish.className = "secondary";
@@ -312,7 +350,7 @@
     srt.href = "/api/creator/projects/" + project.id + "/captions.srt";
     srt.textContent = "Download approximate SRT captions";
     srt.setAttribute("download", "creator_" + project.id + ".srt");
-    finishBox.append(finishTitle,timingNote,subLabel,fadeLabel,transitionLabel,saveFinish,finishState,document.createTextNode(" "),srt);
+    finishBox.append(finishTitle,timingNote,subLabel,fadeLabel,transitionLabel,animationLabel,positionLabel,sizeLabel,textColorLabel,highlightColorLabel,highlightLabel,saveFinish,finishState,document.createTextNode(" "),srt);
     const alignButton = document.createElement("button");
     alignButton.type = "button";
     alignButton.className = "secondary";
@@ -338,12 +376,21 @@
       subtitleChoice.checked = result.settings.captions;
       fadeChoice.checked = result.settings.fade_edges;
       transitionSelect.value = result.settings.transition || "cut";
+      animationSelect.value = result.settings.animation || "none";
+      positionSelect.value = result.settings.position || "bottom";
+      sizeInput.value = result.settings.size_pct ?? 5.5;
+      textColorInput.value = result.settings.text_color || "#FFFFFF";
+      highlightColorInput.value = result.settings.highlight_color || "#FFD400";
+      highlightChoice.checked = Boolean(result.settings.highlight_word);
     }).catch(err => {if(selected===project.id) finishState.textContent=err.message;});
     saveFinish.onclick = async () => {
       saveFinish.disabled = true;
       try {
         await request("PUT", "/api/creator/projects/" + project.id + "/captions/options",
-          {captions:subtitleChoice.checked,fade_edges:fadeChoice.checked,transition:transitionSelect.value});
+          {captions:subtitleChoice.checked,fade_edges:fadeChoice.checked,transition:transitionSelect.value,
+           animation:animationSelect.value,position:positionSelect.value,
+           size_pct:Number(sizeInput.value),text_color:textColorInput.value,
+           highlight_color:highlightColorInput.value,highlight_word:highlightChoice.checked});
         say("Finishing preferences saved. Your next export will use these settings.");
         openProject(project.id);
       } catch(err) {say(err.message);saveFinish.disabled=false;}
