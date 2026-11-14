@@ -18,7 +18,7 @@ bp = Blueprint("creator_alignment", __name__)
 log = logging.getLogger("clipper.creator_alignment")
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="creator-whisper")
 _model_lock = threading.RLock()
-_busy = ("generating_script", "generating_narration", "rendering", "sourcing_visuals", "aligning_captions")
+_busy = ("generating_script", "generating_narration", "rendering", "sourcing_visuals", "aligning_captions", "generating_music")
 
 
 def _voice(pid):
