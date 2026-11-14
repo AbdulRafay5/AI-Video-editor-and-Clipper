@@ -1,0 +1,170 @@
+"""Creator Studio automatic production pipeline regression tests.
+
+No external LLM, paid providers or model downloads. One test renders a real
+multi-scene MP4 to prove the autonomous job actually reaches the final export.
+"""
+import json
+import shutil
+import subprocess
+import tempfile
+import unittest
+import wave
+from pathlib import Path
+from unittest.mock import patch
+
+from flask import Flask
+from clipper import creator_api, creator_auto_api as auto
+from clipper import creator_render_api as render, creator_finish_api as finish, db
+
+
+SCRIPT = {
+    "title": "A quiet street film",
+    "hook": "The story begins.",
+    "scenes": [{"narration": "A person walks along a peaceful street.",
+                "visual_idea": "A street scene"}],
+    "closing": "And that is the story.",
+}
+
+
+class AutomaticCreatorTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.dbp = patch.object(db.config, "DB_PATH", Path(self.temp.name) / "db.sqlite")
+        self.datap = patch.object(render.config, "DATA_DIR", Path(self.temp.name))
+        self.dbp.start(); self.datap.start()
+        db.init_db()
+        app = Flask(__name__)
+        app.register_blueprint(creator_api.bp)
+        app.register_blueprint(render.bp)
+        app.register_blueprint(finish.bp)
+        app.register_blueprint(auto.bp)
+        self.client = app.test_client()
+        self.clientp = patch.object(auto, "_client", side_effect=app.test_client)
+        self.clientp.start()
+        result = self.client.post("/api/creator/projects", json={
+            "topic": "A peaceful documentary about a quiet street", "target_seconds": 30})
+        self.assertEqual(result.status_code, 201)
+        self.pid = result.get_json()["project"]["id"]
+        self.endpoint = f"/api/creator/projects/{self.pid}/auto"
+
+    def tearDown(self):
+        self.clientp.stop()
+        self.datap.stop(); self.dbp.stop()
+        self.temp.cleanup()
+
+    def _save_script(self):
+        saved = self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
+        self.assertEqual(saved.status_code, 200)
+
+    def _add_prepared_narration_and_footage(self, real_video=False):
+        self._save_script()
+        root = render._root(self.pid)
+        folder = root / "narration" / ("a"*32)
+        folder.mkdir(parents=True)
+        segments = []
+        clips = {}
+        for i, (slot, text) in enumerate((
+            ("hook", SCRIPT["hook"]),
+            ("scene_0", SCRIPT["scenes"][0]["narration"]),
+            ("closing", SCRIPT["closing"]),
+        )):
+            filename = f"part_{i:02d}.wav"
+            with wave.open(str(folder / filename), "wb") as wav:
+                wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(16000)
+                wav.writeframes(b"\0\0" * 16000)
+            segments.append({"file": filename, "duration": 1.0, "start": i,
+                             "end": i+1.0, "text": text, "kind": slot})
+            video = root / "visuals" / f"clip_{i}.mp4"
+            video.parent.mkdir(parents=True, exist_ok=True)
+            if real_video:
+                subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                                "-f", "lavfi", "-i",
+                                f"color=c={('red','green','blue')[i]}:s=128x128:r=10:d=1.2",
+                                "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)],
+                               check=True, timeout=30)
+            else:
+                video.write_bytes(b"unused placeholder")
+            clips[slot] = video.name
+        db.execute("UPDATE creator_stages SET status='done', artifact_json=? "
+                   "WHERE project_id=? AND stage='narration'",
+                   (json.dumps({"run_id": "a"*32, "duration": 3.0, "segments": segments}),
+                    self.pid))
+        db.execute("UPDATE creator_stages SET status='done', artifact_json=? "
+                   "WHERE project_id=? AND stage='visuals'",
+                   (json.dumps({"clips": clips}), self.pid))
+        db.execute("UPDATE creator_projects SET status='narration_ready' WHERE id=?",
+                   (self.pid,))
+
+    def _start_and_run(self, options):
+        with patch.object(auto._executor, "submit") as submit:
+            started = self.client.post(self.endpoint + "/start", json=options)
+        self.assertEqual(started.status_code, 202, started.get_data(as_text=True))
+        submit.assert_called_once()
+        auto._automate(self.pid, submit.call_args.args[2])
+        return self.client.get(self.endpoint).get_json()
+
+    def test_refuses_unapproved_missing_stock_and_reports_blocker(self):
+        self._save_script()
+        result = self._start_and_run({"music": "none"})
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["step"], "narration")
+        self.assertIn("Generate narration", result["report"]["error"])
+        self.assertEqual(result["report"]["completed"], ["script"])
+
+    def test_duplicate_running_job_is_rejected(self):
+        db.execute("INSERT INTO creator_auto_jobs(project_id,status,step) "
+                   "VALUES (?,'running','script')", (self.pid,))
+        response = self.client.post(self.endpoint + "/start", json={})
+        self.assertEqual(response.status_code, 409)
+
+    def test_invalid_requests_and_missing_project(self):
+        self.assertEqual(self.client.post(self.endpoint + "/start", json={
+            "approve_stock_download": "yes"}).status_code, 400)
+        self.assertEqual(self.client.post(self.endpoint + "/start", json={
+            "music": "premium"}).status_code, 400)
+        self.assertEqual(self.client.get("/api/creator/projects/999999/auto").status_code, 404)
+
+    def test_restart_marks_interrupted_job_and_preserves_project(self):
+        self._save_script()
+        db.execute("INSERT INTO creator_auto_jobs(project_id,status,step) "
+                   "VALUES (?,'running','footage')", (self.pid,))
+        db.init_db()
+        status = self.client.get(self.endpoint).get_json()
+        self.assertEqual(status["status"], "interrupted")
+        self.assertTrue(render._project(self.pid)["script_json"])
+
+    def test_missing_footage_cannot_pass_without_download_approval(self):
+        self._add_prepared_narration_and_footage()
+        row = db.query_one("SELECT artifact_json FROM creator_stages "
+                           "WHERE project_id=? AND stage='visuals'", (self.pid,))
+        saved = json.loads(row["artifact_json"])
+        del saved["clips"]["scene_0"]
+        db.execute("UPDATE creator_stages SET artifact_json=? WHERE project_id=? AND stage='visuals'",
+                   (json.dumps(saved), self.pid))
+        status = self._start_and_run({"approve_stock_download": False})
+        self.assertEqual(status["status"], "blocked")
+        self.assertEqual(status["step"], "footage")
+        self.assertIn("Footage download not approved", status["report"]["error"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Real FFmpeg renderer unavailable")
+    def test_real_automatic_render_reuses_stages_and_stops_for_approval(self):
+        self._add_prepared_narration_and_footage(real_video=True)
+        # Rendering runs synchronously inside this test; underlying FFmpeg
+        # and MoneyPrinterTurbo caching are real.
+        with patch.object(render._executor, "submit", side_effect=lambda fn,*a: fn(*a)):
+            status = self._start_and_run({"music": "none",
+                                          "approve_stock_download": False,
+                                          "align_captions": False})
+        self.assertEqual(status["status"], "done", status)
+        self.assertEqual(status["step"], "review")
+        self.assertEqual(status["report"]["completed"],
+                         ["script", "narration", "footage", "music", "captions", "render"])
+        response = self.client.get(f"/api/creator/projects/{self.pid}/render/file")
+        self.assertEqual(response.status_code, 200)
+        self.assertGreater(len(response.data), 1024)
+        response.close()
+
+
+if __name__ == "__main__":
+    unittest.main()
