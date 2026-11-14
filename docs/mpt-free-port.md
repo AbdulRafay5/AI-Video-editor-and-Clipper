@@ -213,12 +213,48 @@ length unchanged. Existing clipper APIs, stored clip projects and their
 render paths are unaffected. Frame crop is centre-aligned; custom pan and
 per-scene crop-position keyframes remain future work.
 
+## One-click automatic video production
+
+`clipper/creator_auto_api.py` adds an **opt-in**, persistent, single-project
+pipeline that reuses the existing Creator Studio endpoints and their validation.
+It advances through script → narration → scene footage → music → captions →
+MoneyPrinterTurbo-backed FFmpeg render → **review**. The user can see
+progress and stage errors in the Creator Studio UI, and `creator_auto_jobs`
+records the current step and completed stages.
+
+The orchestrator **reuses saved work** (existing approved scripts, narration,
+scene clips, and rendered exports), and does not rerun costly stages without
+need. It requests the current free configured voice backend when narration
+is missing. Automated stock acquisition requires explicit
+`approve_stock_download=true` on each started job and an existing free stock
+API key. It performs up to five bounded stock batches, stops with a clear
+blocker on an unsuitable/missing shot, and never swaps existing manual footage.
+The optional instrumental setting generates a basic local soundtrack when no
+music has been selected; existing selected music is left alone by default.
+Whisper alignment is optional; captions otherwise use available Edge
+word-boundary timings or the existing approximate fallback.
+
+- Start: `POST /api/creator/projects/<id>/auto/start`
+- Status: `GET /api/creator/projects/<id>/auto`
+- Required body: `{"approve_stock_download": false, "music": "keep", "align_captions": false}`
+- No publishing or paid provider is invoked.
+- Interruptions are recorded in the database; starting again reuses completed
+  stages. The current renderer may need to retry an interrupted FFmpeg stage.
+- A one-click job **does not** guarantee footage relevance or video quality.
+  Human review remains required before using or distributing the result.
+
+**Current limitations:** this is a per-project orchestrator, not a multi-project
+batch scheduler; it doesn't yet synthesize missing visual images or perform
+video-conditioned music analysis. Local MusicGen remains a separate opt-in
+control requiring its optional dependencies and model download. The automatic
+music choice is the older free instrumental or an existing selected track.
+
 ## Still missing compared with MoneyPrinterTurbo
 
 - Visual analysis of downloaded footage and more advanced semantic per-scene selection
 - Local image synthesis and practical model-tested text-to-video generation
 - Alignment quality checks, richer subtitle animation and additional scene effects
-- Automated batch rendering / topic queues and social publishing
+- Multi-project batch queues, publish scheduling and social publishing
 - A fully unified editor timeline with reversible B-roll and captions
 - Image-only animated scenes and actual video-conditioned soundtrack analysis
 
