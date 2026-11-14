@@ -32,6 +32,32 @@ smooth camera-style zoom/pan of the image.
    Generated images are used only for remaining missing scenes.
    Stock downloads are not required when image fallback is enabled.
 
+## Automatic production: two visual-source options
+
+Creator Studio's **Automatic topic-to-video production** now has a
+**Visual source** selector with two exclusive choices:
+
+- **Stock footage — Pexels / Pixabay / Coverr:** approve stock downloads,
+  configure a free provider API key, and reuse or download stock clips.
+  No local image model is called.
+- **AI-generated visuals — local SD-Turbo + cinematic motion:** do not
+  call any stock provider. Generate a **new local AI image for every script
+  slot**, including the opening and ending, then turn each into an animated
+  MP4 for the normal renderer. Explicit first-use model-download permission
+  is still required.
+
+AI-only mode regenerates all scene visuals even if the project already has
+stock or manually uploaded clips. To protect existing work, the new scene
+files are prepared separately, then their **scene references are swapped
+together only after all images and animations succeed**. A failed run leaves
+existing footage selections unchanged, and original media files are not
+deleted. Existing projects can be used with either mode.
+
+**Important:** AI-generated visuals currently means real text-to-image
+generation plus camera-motion animation. It is *not* neural text-to-video
+synthesis of new moving subjects. True model-generated video clips remain a
+separate future provider/model integration.
+
 ## Hardware and behavior
 
 - This is intended as a cautious starting point for an RTX 3060 with
