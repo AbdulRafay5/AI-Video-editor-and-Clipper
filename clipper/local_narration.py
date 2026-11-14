@@ -105,7 +105,7 @@ def combine(inputs: list[Path], output: Path):
     output.parent.mkdir(parents=True, exist_ok=True)
     list_file = output.with_suffix(".list")
     # All input names are server-generated, not influenced by user-supplied paths.
-    list_file.write_text("".join("file '" + str(p.resolve()).replace("'", "'\\''") + "'\n"
+    list_file.write_text("".join("file '" + p.resolve().as_posix().replace("'", "'\\''") + "'\n"
                                  for p in inputs), encoding="utf-8")
     try:
         command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
