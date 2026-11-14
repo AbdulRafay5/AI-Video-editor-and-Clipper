@@ -115,7 +115,7 @@ def _generate(pid, options):
         details = musicgen.generate(
             output, options["prompt"], options["seconds"],
             allow_download=options["allow_download"],
-            sample_seconds=options["sample_seconds"])
+            sample_seconds=options.get("sample_seconds", musicgen.SAMPLE_SECONDS))
         validated_duration = creator._probe_audio(output)
         if abs(validated_duration - options["seconds"]) > 0.5:
             raise musicgen.MusicGenError("Generated soundtrack duration did not match the video.")
