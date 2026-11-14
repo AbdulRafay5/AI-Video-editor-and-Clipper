@@ -155,7 +155,8 @@ def _music(pid):
                 and Path(name).name == name):
             file = _root(pid) / "music" / name
             if file.is_file():
-                return {"filename": name, "file": file, "duration": artifact.get("duration")}
+                return {"filename": name, "file": file, "duration": artifact.get("duration"),
+                        "mode": artifact.get("mode", "uploaded")}
     return None
 
 
@@ -186,7 +187,8 @@ def music_status(pid):
     if not _project(pid):
         return jsonify(error="Project not found."), 404
     item = _music(pid)
-    return jsonify(music=({"filename": item["filename"], "duration": item["duration"]}
+    return jsonify(music=({"filename": item["filename"], "duration": item["duration"],
+                          "mode": item["mode"]}
                            if item else None))
 
 
