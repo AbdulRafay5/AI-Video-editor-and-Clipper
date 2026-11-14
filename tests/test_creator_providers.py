@@ -30,7 +30,7 @@ class FreeProviderTests(unittest.TestCase):
         result = p.parse("pexels", data)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["provider"], "pexels")
-        self.assertIn("small.mp4", result[0]["download_url"])
+        self.assertIn("portrait.mp4", result[0]["download_url"])
 
     def test_coverr_picks_verified_download(self):
         data = {"hits": [{"id": "9", "duration": "8.5", "max_width": 1080,
