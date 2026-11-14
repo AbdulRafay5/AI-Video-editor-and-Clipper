@@ -93,12 +93,61 @@ Options may be switched off in Creator Studio. Users can download the
 original unmodified upstream render when both are off. This stage requires
 an FFmpeg build with libass support when burning captions.
 
+## Free feature parity expansion (November 2026)
+
+### Three stock-footage providers
+
+`clipper/creator_providers.py` adapts MoneyPrinterTurbo's
+`material.py` selection strategy for **Pixabay, Pexels and Coverr**.
+Creator Studio searches whichever free developer credentials you configure:
+
+- `PIXABAY_API_KEY`
+- `PEXELS_API_KEY`
+- `COVERR_API_KEY`
+
+The user must explicitly approve a batch before downloads begin. Provider
+host allowlists, bounded file sizes, local media validation, source metadata
+and manual review controls are enforced. Accounts, request quotas and actual
+availability depend on provider terms; no paid tiers are required by our code.
+Live provider requests were not executed in CI.
+
+### Measured subtitles
+
+`clipper/creator_alignment_api.py` uses the same free
+`faster-whisper` word-timestamp approach as MoneyPrinterTurbo. User-triggered
+local CPU/int8 transcription uses `tiny.en`; its initial public-model download
+needs Internet, and accuracy depends on the recording. When using Edge TTS,
+the narration system also records actual Edge WordBoundary events and
+automatically favours them over estimated segment timings. Kokoro/Piper/Windows
+voices can use Whisper alignment. Existing saved approximate timing remains
+the fallback, not the preferred source of truth.
+
+### Scene transitions
+
+An optional post-processing stage supports real FFmpeg xfade **crossfade,
+slide-left, slide-right and zoom** effects between scenes, using immutable
+scene video artifacts from the copied MoneyPrinterTurbo renderer. Brief
+start/end fades remain separately configurable. The transition logic pads
+outgoing scene visuals so the narration audio timeline is preserved; video
+stays non-destructive and exports a new MP4. Scene transition tests use real
+two-scene FFmpeg rendering.
+
+### Music
+
+Creator Studio now has an upload/reusable-preset/random-track library plus
+four original **locally synthesized instrumental moods**. These soundtracks
+are generated locally, without a sample pack or paid service. This is not
+equivalent to a neural, prompt-to-music model. MoneyPrinterTurbo's cloud
+Sonilo/ElevenLabs music generation involves separate provider terms and
+potential charges; those endpoints are **not** ported in a free-only build.
+Upstream preset MP3s are not copied because their audio redistribution rights
+were not independently verified, even though the code is MIT-licensed.
+
 ## Still missing compared with MoneyPrinterTurbo
 
-- Visual analysis of downloaded footage, additional free providers
-  beyond Pixabay, and more advanced per-scene footage selection
+- Visual analysis of downloaded footage and more advanced semantic per-scene selection
 - Local image synthesis and practical model-tested text-to-video generation
-- Precise word-aligned subtitle timing and advanced scene-to-scene transitions
+- Alignment quality checks, richer subtitle animation and additional scene effects
 - Automated batch rendering / topic queues and social publishing
 - A fully unified editor timeline with reversible B-roll and captions
 - Image-only animated scenes and automatic soundtrack recommendations
