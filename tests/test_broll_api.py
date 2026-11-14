@@ -34,6 +34,10 @@ class BrollLibraryTests(unittest.TestCase):
         listing = self.client.get(url).get_json()["items"]
         self.assertEqual(len(listing), 1)
         self.assertEqual(listing[0]["kind"], "image")
+        self.assertEqual(listing[0]["name"], "cutaway.png")
+        edited = self.client.patch(f"{url}/{item_id}", json={"description": "Coffee shop counter"})
+        self.assertEqual(edited.status_code, 200)
+        self.assertEqual(self.client.get(url).get_json()["items"][0]["description"], "Coffee shop counter")
         self.assertEqual(self.client.get(f"{url}/{item_id}/file").data, b"image-data")
         self.assertEqual(self.client.delete(f"{url}/{item_id}").status_code, 200)
         self.assertEqual(self.client.get(url).get_json()["items"], [])
