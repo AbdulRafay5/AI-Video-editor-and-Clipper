@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from flask import Flask
 from clipper import creator_api, creator_narration_api as narration, creator_auto_api as auto
+from clipper import creator_neural_music_api as neural, local_musicgen
 from clipper import creator_render_api as render, creator_finish_api as finish, db
 
 
@@ -36,6 +37,7 @@ class AutomaticCreatorTests(unittest.TestCase):
         app = Flask(__name__)
         app.register_blueprint(creator_api.bp)
         app.register_blueprint(narration.bp)
+        app.register_blueprint(neural.bp)
         app.register_blueprint(render.bp)
         app.register_blueprint(finish.bp)
         app.register_blueprint(auto.bp)
@@ -125,6 +127,23 @@ class AutomaticCreatorTests(unittest.TestCase):
         self.assertEqual(self.client.post(self.endpoint + "/start", json={
             "music": "premium"}).status_code, 400)
         self.assertEqual(self.client.get("/api/creator/projects/999999/auto").status_code, 404)
+
+    def test_neural_music_requires_explicit_boolean_model_download_permission(self):
+        response = self.client.post(self.endpoint + "/start", json={
+            "music": "neural", "approve_model_download": "yes"})
+        self.assertEqual(response.status_code, 400)
+
+    def test_neural_music_missing_dependencies_blocks_without_rendering(self):
+        self._add_prepared_narration_and_footage()
+        with patch.object(local_musicgen, "dependencies_ready", return_value=False):
+            status = self._start_and_run({
+                "music": "neural", "approve_model_download": False,
+                "approve_stock_download": False})
+        self.assertEqual(status["status"], "blocked")
+        self.assertEqual(status["step"], "music")
+        self.assertIn("optional local MusicGen dependencies", status["report"]["error"])
+        self.assertFalse(render._music(self.pid))
+        self.assertNotEqual(_status := render._project(self.pid)["status"], "render_ready")
 
     def test_restart_marks_interrupted_job_and_preserves_project(self):
         self._save_script()
