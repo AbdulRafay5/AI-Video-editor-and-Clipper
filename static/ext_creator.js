@@ -531,6 +531,17 @@
       neuralLength.append(opt);
     }
     neuralLengthLabel.append(neuralLength);
+    const neuralSampleLabel=document.createElement("label");
+    neuralSampleLabel.textContent="Neural composition length ";
+    const neuralSample=document.createElement("select");
+    for(const [value,label] of [["8","8 seconds · fast"],["12","12 seconds · balanced"],
+      ["16","16 seconds · longer composition"],["20","20 seconds · more variation, slower"]]){
+      const opt=document.createElement("option");
+      opt.value=value;opt.textContent=label;
+      neuralSample.append(opt);
+    }
+    neuralSample.value="12";
+    neuralSampleLabel.append(neuralSample);
     const neuralPromptLabel=document.createElement("label");
     neuralPromptLabel.textContent="Music prompt (optional; blank = match this video's topic and scenes)";
     const neuralPrompt=document.createElement("textarea");
@@ -552,7 +563,7 @@
       "sourcing_visuals","aligning_captions","generating_music"].includes(project.status);
     const neuralStatus=document.createElement("p");
     neuralStatus.className="muted";
-    neuralPanel.append(neuralTitle,neuralExplain,neuralMoodLabel,neuralLengthLabel,
+    neuralPanel.append(neuralTitle,neuralExplain,neuralMoodLabel,neuralLengthLabel,neuralSampleLabel,
       neuralPromptLabel,downloadLabel,previewNeural,generateNeural,neuralStatus);
     musicRow.append(neuralPanel);
     const listenNeural = document.createElement("audio");
@@ -569,14 +580,14 @@
     function neuralPayload(){
       return {mood:neuralMood.value,prompt:neuralPrompt.value,
         duration:neuralLength.value==="match"?"match":Number(neuralLength.value),
-        download_model:downloadConsent.checked};
+        sample_seconds:Number(neuralSample.value),download_model:downloadConsent.checked};
     }
     previewNeural.onclick=async()=>{
       try{
         const data=await request("POST",
           "/api/creator/projects/"+project.id+"/music/neural/preview",neuralPayload());
         neuralStatus.textContent="Prompt: "+data.prompt+
-          " | Soundtrack: "+data.duration+"s (looped neural sample: "+data.sample_seconds+"s)";
+          " | Soundtrack: "+data.duration+"s (neural composition: "+data.sample_seconds+"s)";
       }catch(err){neuralStatus.textContent=err.message;}
     };
     generateNeural.onclick=async()=>{
