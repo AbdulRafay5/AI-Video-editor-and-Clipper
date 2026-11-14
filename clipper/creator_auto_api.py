@@ -77,7 +77,10 @@ def _invoke(client, method, url, data=None):
     response = client.open(url, method=method, json=data)
     output = response.get_json(silent=True) or {}
     if response.status_code not in (200, 201, 202):
-        raise AutoError(str(output.get("error") or "Production stage rejected.")[:280])
+        detail = output.get("error") or (
+            f"Stage endpoint {url} returned HTTP {response.status_code}; "
+            "confirm that the Creator Studio feature route is installed.")
+        raise AutoError(str(detail)[:280])
     return output
 
 
