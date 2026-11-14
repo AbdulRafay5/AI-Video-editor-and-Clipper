@@ -71,12 +71,12 @@
       const {project} = await request("GET", "/api/creator/projects/" + id);
       if(selected !== id) return;
       renderProject(project);
-      if(["generating_script","generating_narration"].includes(project.status)) {
+      if(["generating_script","generating_narration","rendering"].includes(project.status)) {
         polling=setInterval(async () => {
           if(selected !== id) return stopPolling();
           try {
             const {project:p} = await request("GET", "/api/creator/projects/" + id);
-            if(!["generating_script","generating_narration"].includes(p.status)) {
+            if(!["generating_script","generating_narration","rendering"].includes(p.status)) {
               stopPolling();
               renderProject(p);
               refreshList();
@@ -106,7 +106,7 @@
     buttons.className = "actions";
     const generate = document.createElement("button");
     generate.type = "button";
-    generate.disabled = ["generating_script","generating_narration"].includes(project.status);
+    generate.disabled = ["generating_script","generating_narration","rendering"].includes(project.status);
     generate.textContent = project.script ? "Regenerate script" : "Generate script with local Ollama";
     generate.onclick = async () => {
       if(project.script && !confirm("Replace the current script? Save a copy elsewhere if needed.")) return;
@@ -121,7 +121,7 @@
     const remove = document.createElement("button");
     remove.type = "button"; remove.className = "secondary";
     remove.textContent = "Delete project";
-    remove.disabled = ["generating_script","generating_narration"].includes(project.status);
+    remove.disabled = ["generating_script","generating_narration","rendering"].includes(project.status);
     remove.onclick = async () => {
       if(!confirm("Delete this original video project?")) return;
       try {
@@ -168,7 +168,7 @@
       if(chosen.voices.includes(chosen.voice)) voiceSelect.value = chosen.voice;
       voiceInfo.textContent = chosen.description + (chosen.online
         ? " · Free, Internet connection required" : " · Free, runs locally");
-      voiceButton.disabled = !chosen.ready || ["generating_script","generating_narration"].includes(project.status);
+      voiceButton.disabled = !chosen.ready || ["generating_script","generating_narration","rendering"].includes(project.status);
     }
     engineSelect.addEventListener("change", syncVoiceOptions);
     const audioList = document.createElement("div");
@@ -228,6 +228,89 @@
       }).catch(err => { if(selected===project.id) say(err.message); });
     }
     const script = project.script;
+    const visualBox = document.createElement("section");
+    visualBox.className = "card";
+    const visualTitle = document.createElement("h4");
+    visualTitle.textContent = "Scene footage · local and free";
+    const visualHint = document.createElement("p");
+    visualHint.className = "muted";
+    visualHint.textContent = "Upload MP4, MOV or MKV footage for the opening, each scene and ending. No paid services or automatic downloads.";
+    const visualList = document.createElement("div");
+    visualBox.append(visualTitle, visualHint, visualList);
+    const renderButton = document.createElement("button");
+    renderButton.type = "button";
+    renderButton.textContent = "Render complete video";
+    renderButton.disabled = true;
+    const renderMessage = document.createElement("p");
+    renderMessage.className = "muted";
+    visualBox.append(renderButton, renderMessage);
+    container.append(visualBox);
+    const slots = ["hook", ...script.scenes.map((_, index) => "scene_" + index), "closing"];
+    function drawSlots(clips) {
+      visualList.replaceChildren();
+      for (const slot of slots) {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0";
+        const label = document.createElement("strong");
+        label.textContent = slot === "hook" ? "Opening" : slot === "closing" ? "Ending" : "Scene " + (Number(slot.split("_")[1]) + 1);
+        const file = document.createElement("input");
+        file.type = "file"; file.accept = ".mp4,.mov,.mkv,video/*";
+        file.setAttribute("aria-label", "Footage for " + label.textContent);
+        const upload = document.createElement("button");
+        upload.type = "button"; upload.className = "secondary";
+        upload.textContent = clips[slot] ? "Replace footage" : "Upload footage";
+        upload.disabled = ["generating_script","generating_narration","rendering"].includes(project.status);
+        const state = document.createElement("span");
+        state.textContent = clips[slot] ? "Saved" : "Missing";
+        upload.onclick = async () => {
+          if(!file.files.length) return say("Choose footage for " + label.textContent + " first.");
+          if(file.files[0].size > 250 * 1024 * 1024) return say("Video must be under 250MB.");
+          upload.disabled = true;
+          state.textContent = "Uploading...";
+          try {
+            const form = new FormData();
+            form.append("video", file.files[0]);
+            const response = await fetch("/api/creator/projects/" + project.id + "/visuals/" + slot,
+              {method: "POST", body: form});
+            const result = await response.json();
+            if(!response.ok) throw Error(result.error || "Upload failed.");
+            say("Footage saved for " + label.textContent);
+            if(selected === project.id) openProject(project.id);
+          } catch (err) {
+            state.textContent = err.message;
+            upload.disabled = false;
+          }
+        };
+        wrap.append(label, file, upload, state);
+        visualList.append(wrap);
+      }
+      const ready = slots.every(slot => Boolean(clips[slot]));
+      renderButton.disabled = !ready ||
+        project.stages.narration?.status !== "done" ||
+        ["generating_script","generating_narration","rendering"].includes(project.status);
+      renderMessage.textContent = ready
+        ? "All scene footage uploaded. Narration is required to render."
+        : "Upload footage for each part of the script to enable rendering.";
+    }
+    request("GET", "/api/creator/projects/" + project.id + "/visuals")
+      .then(data => { if(selected === project.id) drawSlots(data.clips || {}); })
+      .catch(err => { if(selected === project.id) renderMessage.textContent = err.message; });
+    renderButton.onclick = async () => {
+      if(!confirm("Render your video locally using the MoneyPrinterTurbo project renderer? This can use significant CPU and disk space.")) return;
+      renderButton.disabled = true;
+      try {
+        await request("POST", "/api/creator/projects/" + project.id + "/render");
+        say("Rendering locally. You can return to this project to check progress.");
+        openProject(project.id);
+      } catch (err) { say(err.message); renderButton.disabled = false; }
+    };
+    if (project.stages.render?.status === "done") {
+      const link = document.createElement("a");
+      link.href = "/api/creator/projects/" + project.id + "/render/file";
+      link.textContent = "Download completed MP4";
+      link.setAttribute("download", "creator_" + project.id + ".mp4");
+      visualBox.append(link);
+    }
     const [titleLabel, titleInput] = field("Title", script.title, 1);
     const [hookLabel, hookInput] = field("Opening hook", script.hook, 2);
     container.append(titleLabel, hookLabel);
