@@ -1,7 +1,4 @@
-"""Offline narration backends: Windows SAPI, or an installed Piper voice model.
-
-No cloud services, downloads, external APIs or shell=True.
-"""
+"""Free narration backends: local Kokoro/Piper/Windows speech or online Edge TTS."""
 import os
 import shutil
 import subprocess
@@ -31,6 +28,43 @@ def backend():
             "description": "Windows speech is unavailable. Install Piper and set PIPER_MODEL to an existing local .onnx voice file."}
 
 
+def available_backends():
+    """Expose all voice choices; prefer natural local Kokoro when it is running."""
+    from . import neural_narration
+    choices = neural_narration.available_voices()
+    piper = shutil.which("piper")
+    model = os.environ.get("PIPER_MODEL", "").strip()
+    if piper and model and Path(model).is_file():
+        choices.append({"name": "piper", "ready": True, "voice": Path(model).name,
+                        "voices": [Path(model).name], "online": False,
+                        "description": "Local Piper voice"})
+    if sys.platform == "win32" and shutil.which("powershell"):
+        choices.append({"name": "windows-sapi", "ready": True, "voice": "Windows default",
+                        "voices": ["Windows default"], "online": False,
+                        "description": "Windows built-in offline speech"})
+    return choices
+
+
+def select_backend(name=None, voice=None):
+    choices = available_backends()
+    if name is None:
+        selected = next((c for c in choices if c["ready"] and c["name"] == "kokoro"), None)
+        if selected is None:
+            selected = next((c for c in choices if c["ready"] and not c["online"]), None)
+        if selected is None:
+            selected = next((c for c in choices if c["ready"]), None)
+    else:
+        selected = next((c for c in choices if c["name"] == name), None)
+    if not selected:
+        raise NarrationError("No matching voice engine. Install Kokoro or Edge TTS.")
+    if not selected["ready"]:
+        raise NarrationError(selected["description"])
+    value = selected["voice"] if voice is None else voice
+    if not isinstance(value, str) or value not in selected["voices"]:
+        raise NarrationError("That voice is not available for the selected engine.")
+    return {**selected, "voice": value}
+
+
 def wav_duration(path: Path) -> float:
     try:
         with wave.open(str(path), "rb") as sound:
@@ -57,6 +91,12 @@ def synthesize(text: str, target: Path, selected: dict | None = None):
         raise NarrationError(selected["description"])
     target.parent.mkdir(parents=True, exist_ok=True)
     target.unlink(missing_ok=True)
+    if selected["name"] in ("kokoro", "edge"):
+        from . import neural_narration
+        try:
+            return neural_narration.speak_neural(text.strip(), target, selected)
+        except neural_narration.NeuralVoiceError as exc:
+            raise NarrationError(str(exc)) from exc
     if selected["name"] == "piper":
         model = Path(os.environ["PIPER_MODEL"]).resolve()
         command = ["piper", "--model", str(model), "--output_file", str(target)]
