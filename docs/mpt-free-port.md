@@ -134,14 +134,44 @@ two-scene FFmpeg rendering.
 
 ### Music
 
-Creator Studio now has an upload/reusable-preset/random-track library plus
-four original **locally synthesized instrumental moods**. These soundtracks
-are generated locally, without a sample pack or paid service. This is not
-equivalent to a neural, prompt-to-music model. MoneyPrinterTurbo's cloud
+Creator Studio has an upload/reusable-preset/random-track library, four
+algorithmically synthesized instrumental moods, and optional MusicGen Small neural soundtracks. The algorithmic soundtracks and optional neural soundtracks run locally,
+without requiring a paid provider. MoneyPrinterTurbo's cloud
 Sonilo/ElevenLabs music generation involves separate provider terms and
 potential charges; those endpoints are **not** ported in a free-only build.
 Upstream preset MP3s are not copied because their audio redistribution rights
 were not independently verified, even though the code is MIT-licensed.
+
+### Local neural soundtrack generation
+
+MoneyPrinterTurbo's **video-to-music** API providers (Sonilo and ElevenLabs)
+are distinct from Creator Studio's **local text-to-music** implementation.
+`clipper/local_musicgen.py` integrates real, prompt-conditioned
+`facebook/musicgen-small` neural inference using Hugging Face Transformers
+and PyTorch; optional dependencies are in `requirements-music.txt`.
+The `creator_neural_music_api.py` bridge provides model capabilities,
+video-aware prompt preview, music-job status, generated-audio playback and
+a background generation endpoint.
+
+- A blank prompt derives a style from selected mood, the project topic and
+  scene descriptions; custom text can override this.
+- The target length matches measured narration duration where available,
+  otherwise the video's planned duration, bounded to 6–180 seconds.
+- MusicGen produces an **8-second neural sample**, then the app crossfades
+  repetitions into a longer soundtrack and fades the endpoints. This is not
+  a unique 180-second neural composition.
+- Downloads occur only when a user explicitly permits an initial Hugging
+  Face model download. No cloud music inference API or payments are involved.
+- On failure, the previously selected music and render outputs remain intact.
+  Successful output replaces the selected background track; the existing
+  MoneyPrinterTurbo project renderer mixes it with narration.
+- CI uses a fake neural model to test the interface and WAV generation.
+  Model weights are **not downloaded or benchmarked** on Windows in CI.
+- The generator uses a text description based on the **script**, not direct
+  analysis of rendered video pixels. That is a meaningful difference from
+  MoneyPrinterTurbo's video-conditioned cloud providers.
+
+Setup and limitations: `docs/free-musicgen.md`.
 
 ### Animated subtitle parity
 
@@ -190,7 +220,7 @@ per-scene crop-position keyframes remain future work.
 - Alignment quality checks, richer subtitle animation and additional scene effects
 - Automated batch rendering / topic queues and social publishing
 - A fully unified editor timeline with reversible B-roll and captions
-- Image-only animated scenes and automatic soundtrack recommendations
+- Image-only animated scenes and actual video-conditioned soundtrack analysis
 
 These gaps should be ported or adapted independently behind opt-in paths
 and tested before altering the existing clipper. None of the above missing
