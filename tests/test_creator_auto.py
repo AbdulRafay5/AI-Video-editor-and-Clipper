@@ -16,6 +16,7 @@ from flask import Flask
 from clipper import creator_api, creator_narration_api as narration, creator_stock_api as stock, creator_auto_api as auto
 from clipper import creator_neural_music_api as neural, local_musicgen
 from clipper import creator_image_api as images, local_imagegen
+from clipper import creator_video_api as neural_video, local_text_to_video
 from clipper import creator_render_api as render, creator_finish_api as finish, db
 
 
@@ -40,6 +41,7 @@ class AutomaticCreatorTests(unittest.TestCase):
         app.register_blueprint(narration.bp)
         app.register_blueprint(stock.bp)
         app.register_blueprint(images.bp)
+        app.register_blueprint(neural_video.bp)
         app.register_blueprint(neural.bp)
         app.register_blueprint(render.bp)
         app.register_blueprint(finish.bp)
@@ -123,6 +125,16 @@ class AutomaticCreatorTests(unittest.TestCase):
                    "VALUES (?,'running','script')", (self.pid,))
         response = self.client.post(self.endpoint + "/start", json={})
         self.assertEqual(response.status_code, 409)
+
+    def test_true_video_mode_rejects_stock_and_still_images(self):
+        self.assertEqual(auto.validate({"visual_mode": "neural_video"})["visual_mode"],
+                         "neural_video")
+        for options in [
+            {"visual_mode": "neural_video", "approve_stock_download": True},
+            {"visual_mode": "neural_video", "use_ai_images": True},
+        ]:
+            self.assertEqual(self.client.post(self.endpoint + "/start",
+                                              json=options).status_code, 400)
 
     def test_visual_mode_validation_keeps_stock_and_ai_separate(self):
         self.assertEqual(auto.validate({"visual_mode": "stock"})["visual_mode"], "stock")
@@ -312,6 +324,45 @@ class AutomaticCreatorTests(unittest.TestCase):
             self.assertNotEqual(visuals[slot], old[slot])
         self.assertEqual(self.client.get(
             f"/api/creator/projects/{self.pid}/render/file").status_code, 200)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Real FFmpeg renderer unavailable")
+    def test_true_neural_video_mode_renders_with_generated_motion_clips_only(self):
+        self._add_prepared_narration_and_footage(real_video=True)
+        old = render._visuals(self.pid).copy()
+        source = render._root(self.pid) / "visuals" / old["hook"]
+        prompts = []
+        class FakeModel:
+            def __init__(self, *, allow_download=False):
+                self.approved = allow_download
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def generate(self, prompt, target, *, steps=30):
+                prompts.append(prompt)
+                shutil.copyfile(source, target)
+                return local_text_to_video.probe_video(target)
+        def reject_stock(*args, **kwargs):
+            raise AssertionError("No stock operations allowed in neural video mode.")
+        with patch.object(local_text_to_video, "dependencies_ready", return_value=True), \
+             patch.object(local_text_to_video, "LocalCogVideoX", FakeModel), \
+             patch.object(neural_video._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch.object(render._executor, "submit", side_effect=lambda fn,*a: fn(*a)), \
+             patch("clipper.creator_providers.configured", side_effect=reject_stock), \
+             patch.object(stock._executor, "submit", side_effect=reject_stock), \
+             patch("clipper.llm.unload", return_value=None):
+            status = self._start_and_run({
+                "visual_mode": "neural_video", "approve_image_model_download": False,
+                "music": "none"})
+        self.assertEqual(status["status"], "done", status)
+        self.assertEqual(status["step"], "review")
+        self.assertEqual(len(prompts), len(old))
+        for slot, filename in render._visuals(self.pid).items():
+            self.assertNotEqual(filename, old[slot])
+        final = self.client.get(f"/api/creator/projects/{self.pid}/render/file")
+        self.assertEqual(final.status_code,200)
+        final.close()
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "Real FFmpeg renderer unavailable")
