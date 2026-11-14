@@ -103,6 +103,19 @@ class RenderBridgeTests(unittest.TestCase):
         self.assertTrue(all(Path(s["audio"]).is_file() for s in manifest["scenes"]))
         self.assertEqual([s["id"] for s in manifest["scenes"]], ["hook", "scene_0", "closing"])
 
+    def test_interrupted_render_recovers_after_restart(self):
+        db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
+        db.execute("UPDATE creator_stages SET status='running' "
+                   "WHERE project_id=? AND stage='render'", (self.pid,))
+        db.init_db()
+        self.assertEqual(render._project(self.pid)["status"], "narration_ready")
+        state = self.client.get(f"/api/creator/projects/{self.pid}/render").get_json()
+        self.assertEqual(state["status"], "failed")
+
+    def test_cancel_requires_active_render(self):
+        self.assertEqual(self.client.post(
+            f"/api/creator/projects/{self.pid}/render/cancel").status_code, 409)
+
     def test_upstream_revision_graph_reuses_unaffected_scenes(self):
         base = {"settings": {}, "toolchain": {"ffmpeg": "a", "ffprobe": "b"},
                 "bgm": None, "scenes": [
