@@ -1,4 +1,5 @@
 """Real FFmpeg scene-to-scene transition test using upstream cached scene videos."""
+import json
 import shutil
 import subprocess
 import tempfile
@@ -72,6 +73,21 @@ class CreatorTransitionsTests(unittest.TestCase):
                                  "-of", "default=noprint_wrappers=1:nokey=1", str(final)],
                                 capture_output=True,text=True,timeout=15,check=True)
         self.assertAlmostEqual(float(result.stdout.strip()), 4.0, delta=0.25)
+        # Prove the same scene transition also works with subtitles and edge fades.
+        db.execute("UPDATE creator_stages SET status='done', artifact_json=? "
+                   "WHERE project_id=? AND stage='narration'",
+                   (json.dumps({"duration": 4.0, "segments": [
+                       {"start": 0.0, "end": 2.0, "text": "First voiceover scene."},
+                       {"start": 2.0, "end": 4.0, "text": "Second voiceover scene."},
+                   ]}), self.pid))
+        combined = self.client.put(
+            f"/api/creator/projects/{self.pid}/captions/options",
+            json={"captions": True, "fade_edges": True, "transition": "fade"})
+        self.assertEqual(combined.status_code, 200)
+        output = finish.finish_project(
+            self.pid, Path(base["export"]["path"]), spec["revision_id"], directory / "finished")
+        self.assertTrue(output.is_file())
+        self.assertGreater(output.stat().st_size, 1024)
 
 
 if __name__ == "__main__":
