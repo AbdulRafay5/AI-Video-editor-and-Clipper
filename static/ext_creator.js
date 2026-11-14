@@ -656,6 +656,7 @@
     autoMessage.className="muted";
     autoPanel.append(autoTitle,autoDesc,stockApproval,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage);
     visualBox.append(autoPanel);
+    let autoPollTimer=null;
     async function refreshAuto(){
       try{
         const info=await request("GET","/api/creator/projects/"+project.id+"/auto");
@@ -664,6 +665,12 @@
         if(info.status==="running"){
           autoMessage.textContent="Working on "+info.step+" · completed: "+completed;
           startAuto.disabled=true;
+          if(!autoPollTimer){
+            autoPollTimer=setTimeout(async()=>{
+              autoPollTimer=null;
+              if(selected===project.id) await refreshAuto();
+            },3000);
+          }
         }else if(info.status==="blocked"){
           autoMessage.textContent="Stopped at "+info.step+": "+(info.report?.error||"Review the job report")+
             ". Completed: "+completed+". You can retry.";
@@ -692,15 +699,6 @@
         await refreshAuto();
       }catch(err){autoMessage.textContent=err.message;startAuto.disabled=false;}
     };
-    // Poll only while this project's panel is selected; no extra background job.
-    let autoPollCount=0;
-    const autoPoll=setInterval(async()=>{
-      if(selected!==project.id || ++autoPollCount>1800){clearInterval(autoPoll);return;}
-      await refreshAuto();
-      if(["done","blocked"].includes((await request("GET","/api/creator/projects/"+project.id+"/auto")).status)){
-        clearInterval(autoPoll);
-      }
-    },3000);
     const editPanel = document.createElement("section");
     editPanel.className = "card";
     const editTitle = document.createElement("h4");
