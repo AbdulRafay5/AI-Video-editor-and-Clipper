@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -17,12 +18,14 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file
 
 import config
-from . import captions as cap, db, local_narration
+from . import captions as cap, creator_subtitle_animation as animation, db, local_narration
 
 bp = Blueprint("creator_finish", __name__)
 log = logging.getLogger("clipper.creator_finish")
 MAX_FADE = 0.8
-DEFAULT = {"captions": True, "fade_edges": True, "transition": "cut"}
+DEFAULT = {"captions": True, "fade_edges": True, "transition": "cut",
+           "animation": "none", "position": "bottom", "highlight_word": False,
+           "size_pct": 5.5, "text_color": "#FFFFFF", "highlight_color": "#FFD400"}
 TRANSITIONS = {"cut", "fade", "slideleft", "slideright", "zoomin"}
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -129,6 +132,19 @@ def set_options(pid):
         return jsonify(error="Caption and fade selections must be true or false."), 400
     if body.get("transition", "cut") not in TRANSITIONS:
         return jsonify(error="Invalid scene transition."), 400
+    if body.get("animation", "none") not in animation.MODES:
+        return jsonify(error="Unsupported subtitle animation."), 400
+    if body.get("position", "bottom") not in ("bottom", "middle", "top"):
+        return jsonify(error="Invalid subtitle placement."), 400
+    if type(body.get("highlight_word", False)) is not bool:
+        return jsonify(error="Highlight selection must be true or false."), 400
+    fontsize = body.get("size_pct", 5.5)
+    if (type(fontsize) not in (int, float) or not 2 <= fontsize <= 12):
+        return jsonify(error="Subtitle size must be between 2% and 12%."), 400
+    for color in ("text_color", "highlight_color"):
+        if not isinstance(body.get(color, DEFAULT[color]), str) or not re.fullmatch(
+                r"#[0-9A-Fa-f]{6}", body.get(color, DEFAULT[color])):
+            return jsonify(error="Subtitle colors must be hexadecimal."), 400
     body = {**DEFAULT, **body}
     with db.get_db() as conn:
         project = conn.execute("SELECT status FROM creator_projects WHERE id=?", (pid,)).fetchone()
@@ -191,10 +207,15 @@ def finish_project(pid, base_mp4, revision, finished_root):
             artifact = _narration(pid)
             captions, _ = project_captions(pid)
             style = cap.normalise_style({
-                "font": "Arial", "size_pct": 5.5, "position": "bottom",
-                "highlight_word": False, "margin_pct": 16.0,
+                "font": "Arial", "size_pct": opts["size_pct"],
+                "position": opts["position"],
+                "highlight_word": opts["highlight_word"],
+                "text_color": opts["text_color"],
+                "highlight_color": opts["highlight_color"],
+                "margin_pct": 16.0,
             })
             ass, events = cap.build_ass(captions, style, 720, 1280)
+            ass = animation.animate_ass(ass, opts["animation"])
             if events == 0:
                 raise FinishError("No usable subtitle events.")
             cap.prepare_workdir(folder, ass, style["font"])
