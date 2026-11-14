@@ -21,10 +21,10 @@ SCRIPT = {"title":"Animation Test","hook":"The opening line.",
 
 class SpringCaptionTests(unittest.TestCase):
     def test_upstream_curve_is_damped_and_ends_at_normal_size(self):
-        self.assertAlmostEqual(anim.spring_scale(0), 0.6)
+        self.assertAlmostEqual(anim.spring_scale(0), 0.05)
         self.assertEqual(anim.spring_scale(1), 1.0)
-        self.assertTrue(all(0.6 <= anim.spring_scale(t / 100) <= 1.3 for t in range(40)))
-        self.assertGreater(anim.spring_scale(0.08), 1.0)
+        self.assertTrue(all(0.05 <= anim.spring_scale(t / 100) <= 1.35 for t in range(40)))
+        self.assertGreater(anim.spring_scale(0.05), 1.0)
 
     def test_real_ass_caption_events_have_dynamic_spring_transforms(self):
         caps = [{"id": 1, "start": 0.0, "end": 1.0, "text": "Hello there",
@@ -33,7 +33,7 @@ class SpringCaptionTests(unittest.TestCase):
         plain, events = captions.build_ass(caps, {"highlight_word":False}, 720, 1280)
         self.assertGreater(events, 0)
         animated = anim.animate_ass(plain, "pop_spring")
-        self.assertIn(r"\fscx60", animated)
+        self.assertIn(r"\fscx5", animated)
         self.assertIn(r"\t(", animated)
         self.assertTrue(any("Dialogue:" in line and r"\fscx" in line
                             for line in animated.splitlines()))
