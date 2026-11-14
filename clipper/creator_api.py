@@ -184,7 +184,7 @@ def save_script(pid):
         state = conn.execute("SELECT status FROM creator_projects WHERE id=?", (pid,)).fetchone()
         if not state:
             return jsonify(error="Project not found."), 404
-        if state["status"] == "generating_script":
+        if state["status"] in ("generating_script", "generating_narration"):
             return jsonify(error="Wait until the current generation finishes."), 409
         conn.execute("UPDATE creator_projects SET script_json=?, status='script_ready', "
                      "error=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -204,7 +204,7 @@ def delete_creator_project(pid):
         state = conn.execute("SELECT status FROM creator_projects WHERE id=?", (pid,)).fetchone()
         if not state:
             return jsonify(error="Project not found."), 404
-        if state["status"] == "generating_script":
+        if state["status"] in ("generating_script", "generating_narration"):
             return jsonify(error="Wait until script generation finishes."), 409
         conn.execute("DELETE FROM creator_projects WHERE id=?", (pid,))
     return jsonify(ok=True)
