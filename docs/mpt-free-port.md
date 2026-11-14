@@ -143,6 +143,22 @@ potential charges; those endpoints are **not** ported in a free-only build.
 Upstream preset MP3s are not copied because their audio redistribution rights
 were not independently verified, even though the code is MIT-licensed.
 
+### Animated subtitle parity
+
+Creator Studio now supports `none`, `fade` and MoneyPrinterTurbo-style
+`pop_spring` animations. The spring timing formula and original constants
+are ported from upstream `app/services/video.py`. The implementation
+uses libass animated scale transforms inside the existing FFmpeg finishing
+pass, not an entire copy of MoviePy's text renderer. Other controls include
+subtitle position, font size, text colour, highlight colour and optional
+spoken-word highlighting. Exact highlighting depends on Edge TTS word
+events or local Whisper alignment. Previous Creator projects default to
+unanimated captions until the user selects a new animation.
+
+This is a close animation adaptation, **not identical pixel-for-pixel
+MoviePy composition**. Animated subtitles are rendered into a new export
+file, leaving the original clipper and upstream video project cache intact.
+
 ## Still missing compared with MoneyPrinterTurbo
 
 - Visual analysis of downloaded footage and more advanced semantic per-scene selection
