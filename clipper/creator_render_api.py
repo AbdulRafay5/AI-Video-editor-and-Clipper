@@ -293,10 +293,18 @@ def _engine(pid):
 def _run(pid, revision):
     try:
         result = _engine(pid).render(revision)
+        from . import creator_finish_api
+        # The upstream cached render remains immutable. Finishing writes a
+        # separate MP4 and never touches existing clipper outputs.
+        base = Path(result["export"]["path"])
+        finished = creator_finish_api.finish_project(
+            pid, base, revision, _root(pid) / "finished")
         safe = {
             "revision_id": revision, "state": result["state"],
             "promoted": result.get("promoted", False),
             "reused_stages": sum(v.get("reused", False) for v in result.get("stages", {}).values()),
+            "finished": finished != base,
+            "final_name": finished.name if finished != base else None,
         }
         with db.get_db() as conn:
             conn.execute("UPDATE creator_projects SET status='render_ready', error=NULL, "
@@ -386,10 +394,26 @@ def cancel_render(pid):
 def render_file(pid):
     if not _project(pid):
         return jsonify(error="Project not found."), 404
-    row = db.query_one("SELECT status FROM creator_stages WHERE project_id=? AND stage='render'", (pid,))
+    row = db.query_one("SELECT status, artifact_json FROM creator_stages "
+                       "WHERE project_id=? AND stage='render'", (pid,))
     if not row or row["status"] != "done":
         return jsonify(error="Render a video first."), 409
     try:
+        artifact = json.loads(row["artifact_json"]) if row["artifact_json"] else {}
+        final_name = artifact.get("final_name")
+        if final_name is not None:
+            revision = artifact.get("revision_id")
+            if (not isinstance(revision, str) or
+                    final_name != f"finished_{revision}.mp4" or
+                    not isinstance(revision, str) or len(revision) != 32 or
+                    any(c not in "0123456789abcdef" for c in revision)):
+                raise ProjectError("Invalid final export artifact.")
+            finished = (_root(pid) / "finished" / final_name).resolve()
+            if ((_root(pid) / "finished").resolve() not in finished.parents
+                    or not finished.is_file()):
+                raise ProjectError("Final video is missing.")
+            return send_file(finished, mimetype="video/mp4", as_attachment=True,
+                             download_name=f"creator_{pid}.mp4")
         info = _engine(pid).metadata()["last_successful_export"]
         # Use the immutable renderer's verified path, not a caller-selected filename.
         file = Path(info["path"]).resolve()
