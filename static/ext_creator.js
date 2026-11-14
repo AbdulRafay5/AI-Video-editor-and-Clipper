@@ -1105,7 +1105,7 @@
   }
   $("creator-batch-start").onclick=async()=>{
     const button=$("creator-batch-start");
-    const topics=$("creator-batch-topics").value.split(/\\r?\\n/).map(t=>t.trim()).filter(Boolean);
+    const topics=$("creator-batch-topics").value.split(/\r?\n/).map(t=>t.trim()).filter(Boolean);
     if(topics.length<2||topics.length>8){
       $("creator-batch-message").textContent="Enter 2–8 topics, one per line.";
       return;
