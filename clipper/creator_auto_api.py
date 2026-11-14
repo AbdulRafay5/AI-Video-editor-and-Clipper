@@ -164,24 +164,38 @@ def _automate(pid, options):
             return [slot for slot in slots if not render._visuals(pid).get(slot)]
 
         if options.get("visual_mode") == "neural_video":
-            _invoke(client, "POST", base + "/neural-video/generate", {
-                "approve_model_download": options["approve_image_model_download"]})
+            # Resume from validated neural footage instead of paying the inference
+            # cost again when a later stage such as music or rendering fails.
+            visual_row = _stage(pid, "visuals")
+            visual_artifact = (json.loads(visual_row["artifact_json"])
+                               if visual_row and visual_row["artifact_json"] else {})
+            previous_clips = visual_artifact.get("clips", {})
+            previous_sources = visual_artifact.get("sources", {})
+            reusable = (all(slot in previous_clips
+                            and previous_sources.get(slot, {}).get("provider") == "local-cogvideox-2b"
+                            for slot in slots)
+                        and all((render._root(pid) / "visuals" / previous_clips[slot]).is_file()
+                                for slot in slots))
+            if not reusable:
+                _invoke(client, "POST", base + "/neural-video/generate", {
+                    "approve_model_download": options["approve_image_model_download"]})
             # True diffusion inference is much slower than FFmpeg still-image animation.
-            deadline = time.monotonic() + 21600
-            while time.monotonic() < deadline:
-                job = db.query_one(
-                    "SELECT status,report_json FROM creator_video_jobs WHERE project_id=?",
-                    (pid,))
-                if job and job["status"] in ("done", "blocked", "interrupted"):
-                    break
-                time.sleep(1)
-            else:
-                raise AutoError("Neural video exceeded the 6-hour project limit.")
-            if job["status"] != "done":
-                detail = json.loads(job["report_json"] or "{}")
-                err = next(iter(detail.get("errors", {}).values()),
-                           "Neural video generation failed.")
-                raise AutoError(str(err)[:280])
+            if not reusable:
+                deadline = time.monotonic() + 21600
+                while time.monotonic() < deadline:
+                    job = db.query_one(
+                        "SELECT status,report_json FROM creator_video_jobs WHERE project_id=?",
+                        (pid,))
+                    if job and job["status"] in ("done", "blocked", "interrupted"):
+                        break
+                    time.sleep(1)
+                else:
+                    raise AutoError("Neural video exceeded the 6-hour project limit.")
+                if job["status"] != "done":
+                    detail = json.loads(job["report_json"] or "{}")
+                    err = next(iter(detail.get("errors", {}).values()),
+                               "Neural video generation failed.")
+                    raise AutoError(str(err)[:280])
         elif options.get("visual_mode") == "ai":
             # Explicit AI mode regenerates *every* script slot, even if stock
             # or manually uploaded footage already exists in this project.
@@ -318,6 +332,14 @@ def _automate(pid, options):
         if not existing or existing["status"] != "done":
             _invoke(client, "POST", base + "/render", {})
             _poll(pid, "render", report, WAIT_SECONDS["render"])
+        # A completed stage must have an actual downloadable file.
+        # Avoid buffering a large MP4 into process memory.
+        export_response = client.get(base + "/render/file", buffered=False)
+        try:
+            if export_response.status_code != 200:
+                raise AutoError("Rendering finished but its MP4 is unavailable. Check the export files.")
+        finally:
+            export_response.close()
         report["completed"].append("render")
         current = "review"
         report["message"] = "Video rendered. Review and approve manually before any publishing."
