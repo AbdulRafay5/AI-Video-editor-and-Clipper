@@ -30,12 +30,13 @@ class AutoError(ValueError):
 def validate(payload):
     if not isinstance(payload, dict):
         raise AutoError("Select automation options.")
-    expected = {"approve_stock_download", "voice_engine", "voice", "music", "align_captions"}
+    expected = {"approve_stock_download", "voice_engine", "voice", "music", "align_captions", "approve_model_download"}
     if set(payload) - expected:
         raise AutoError("Unexpected automation option.")
     stock = payload.get("approve_stock_download", False)
     aligned = payload.get("align_captions", False)
-    if type(stock) is not bool or type(aligned) is not bool:
+    music_download = payload.get("approve_model_download", False)
+    if type(stock) is not bool or type(aligned) is not bool or type(music_download) is not bool:
         raise AutoError("Download approval and alignment must be true or false.")
     voice_engine = payload.get("voice_engine")
     voice = payload.get("voice")
@@ -44,10 +45,11 @@ def validate(payload):
     if voice is not None and (not isinstance(voice, str) or len(voice) > 80):
         raise AutoError("Invalid voice.")
     music = payload.get("music", "keep")
-    if music not in ("keep", "instrumental", "none"):
+    if music not in ("keep", "instrumental", "neural", "none"):
         raise AutoError("Choose existing music, local instrumental or none.")
     return {"approve_stock_download": stock, "voice_engine": voice_engine,
-            "voice": voice, "music": music, "align_captions": aligned}
+            "voice": voice, "music": music, "align_captions": aligned,
+            "approve_model_download": music_download}
 
 
 def status(pid):
@@ -181,6 +183,25 @@ def _automate(pid, options):
             from . import creator_music_api
             _invoke(client, "POST", base + "/music/generate", {
                 "mood": "cinematic", "seconds": 30})
+        if options["music"] == "neural" and not render._music(pid):
+            _invoke(client, "POST", base + "/music/neural/generate", {
+                "mood": "cinematic", "duration": "match",
+                "download_model": options["approve_model_download"],
+                "sample_seconds": 12,
+            })
+            deadline = time.monotonic() + WAIT_SECONDS["music"]
+            while time.monotonic() < deadline:
+                job = db.query_one(
+                    "SELECT status, report_json FROM creator_music_jobs WHERE project_id=?",
+                    (pid,))
+                if job and job["status"] in ("done", "failed"):
+                    break
+                time.sleep(0.4)
+            else:
+                raise AutoError("Local neural soundtrack generation timed out.")
+            if job["status"] == "failed":
+                info = json.loads(job["report_json"] or "{}")
+                raise AutoError(str(info.get("error") or "Neural soundtrack generation failed.")[:280])
         if options["music"] == "none" and render._music(pid):
             _invoke(client, "DELETE", base + "/music")
         report["completed"].append("music")
