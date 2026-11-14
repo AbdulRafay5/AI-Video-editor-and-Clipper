@@ -78,7 +78,7 @@ def submit():
                               "before trying again; a generation may have been charged.")), 502
     data = result.get("data") if isinstance(result, dict) else None
     prediction_id = str(data.get("id") or "") if isinstance(data, dict) else ""
-    if result.get("code") != 200 or not prediction_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,150}", prediction_id):
+    if not isinstance(result, dict) or result.get("code") != 200 or not prediction_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,150}", prediction_id):
         return jsonify(error="Provider rejected the request or did not return a usable task ID. Check its dashboard."), 502
     job_id = uuid.uuid4().hex
     with _lock:
