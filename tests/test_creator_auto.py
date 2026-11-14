@@ -342,7 +342,7 @@ class AutomaticCreatorTests(unittest.TestCase):
             def generate(self, prompt, target, *, steps=30):
                 prompts.append(prompt)
                 shutil.copyfile(source, target)
-                return local_text_to_video.probe_video(target)
+                return {"seconds": 1.2}
         def reject_stock(*args, **kwargs):
             raise AssertionError("No stock operations allowed in neural video mode.")
         with patch.object(local_text_to_video, "dependencies_ready", return_value=True), \
