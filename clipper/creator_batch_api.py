@@ -26,8 +26,10 @@ def _details(batch_id):
     if not batch:
         return None
     items = db.query(
-        "SELECT i.id, i.project_id, i.status, i.error, p.topic, p.status AS project_status "
+        "SELECT i.id, i.project_id, i.status, i.error, p.topic, "
+        "p.status AS project_status, a.step AS current_step "
         "FROM creator_batch_items i JOIN creator_projects p ON p.id=i.project_id "
+        "LEFT JOIN creator_auto_jobs a ON a.project_id=i.project_id "
         "WHERE i.batch_id=? ORDER BY i.id", (batch_id,))
     result = {key: batch[key] for key in ("id", "status", "created_at", "updated_at")}
     result["items"] = items
