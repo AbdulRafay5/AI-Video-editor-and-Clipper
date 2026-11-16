@@ -19,6 +19,7 @@ class CreatorBatchTests(unittest.TestCase):
         app.register_blueprint(creator_api.bp)
         app.register_blueprint(batch.bp)
         self.client = app.test_client()
+        self.app = app
         self.submit = patch.object(batch._executor, "submit")
         self.submit.start()
         self.payload = {
@@ -37,6 +38,9 @@ class CreatorBatchTests(unittest.TestCase):
         self.assertEqual(response.status_code, 202, response.get_json())
         data = response.get_json()["batch"]
         self.assertEqual(data["status"], "running")
+        submitted = batch._executor.submit
+        self.assertIs(submitted.call_args.args[1], data["id"])
+        self.assertIs(submitted.call_args.args[2], self.app)
         self.assertEqual(data["counts"]["queued"], 2)
         self.assertEqual(len(data["items"]), 2)
         for item in data["items"]:
