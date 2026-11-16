@@ -9,7 +9,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from . import creator_render_api as render, db
 
@@ -139,8 +139,11 @@ def _wait_idle(pid, seconds=30):
     raise AutoError("Previous generation stage did not release the project lock.")
 
 
-def _automate(pid, options):
-    client = _client()
+def _automate(pid, options, flask_app=None):
+    # In the running server, use the already initialised Flask app.
+    # Importing "app" in a worker launched via python app.py would create a
+    # second app and incorrectly mark active DB jobs as interrupted.
+    client = flask_app.test_client() if flask_app is not None else _client()
     base = f"/api/creator/projects/{pid}"
     report = {"completed": [], "needs_review": True}
     current = "script"
@@ -387,7 +390,7 @@ def start(pid):
                          "ON CONFLICT(project_id) DO UPDATE SET status='running',step='script',"
                          "options_json=excluded.options_json,report_json='{}',updated_at=CURRENT_TIMESTAMP",
                          (pid, json.dumps(options)))
-        _executor.submit(_automate, pid, options)
+        _executor.submit(_automate, pid, options, current_app._get_current_object())
     return jsonify(ok=True, status="running", step="script"), 202
 
 
