@@ -126,6 +126,19 @@ def _step(pid, step, report):
     _save(pid, "running", step, report)
 
 
+def _wait_idle(pid, seconds=30):
+    """Workers can mark their job done just before clearing project BUSY."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        project = render._project(pid)
+        if not project:
+            raise AutoError("Project was deleted during generation.")
+        if project["status"] not in render.BUSY:
+            return
+        time.sleep(0.2)
+    raise AutoError("Previous generation stage did not release the project lock.")
+
+
 def _automate(pid, options):
     client = _client()
     base = f"/api/creator/projects/{pid}"
@@ -273,6 +286,9 @@ def _automate(pid, options):
                     raise AutoError(
                         "Missing scene footage. Approve stock downloads or enable local AI image generation.")
                 raise AutoError("Some scenes still lack footage; review footage and image reports.")
+        # Neural/image/stock worker status may become 'done' before its
+        # project-state cleanup finishes; avoid a spurious render HTTP 409.
+        _wait_idle(pid)
         report["completed"].append("footage")
 
         current = "music"
