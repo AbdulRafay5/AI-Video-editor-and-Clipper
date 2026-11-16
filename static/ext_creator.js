@@ -1051,6 +1051,7 @@
     } catch(err) { say(err.message); }
     finally { create.disabled=false; }
   };
+  let batchPollTimer=null;
   async function refreshBatches(){
     const list=$("creator-batches");
     try{
@@ -1100,6 +1101,12 @@
           wrapper.append(retry);
         }
         list.append(wrapper);
+      }
+      // Keep progress visible without manual refresh, but avoid polling
+      // indefinitely once every batch has finished.
+      if(batchPollTimer){clearTimeout(batchPollTimer);batchPollTimer=null;}
+      if(result.batches.some(b=>b.status==="running")){
+        batchPollTimer=setTimeout(()=>{batchPollTimer=null;refreshBatches();},5000);
       }
     }catch(err){$("creator-batch-message").textContent=err.message;}
   }
