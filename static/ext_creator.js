@@ -1069,7 +1069,8 @@
           row.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px";
           const open=document.createElement("button");
           open.type="button";open.className="secondary";
-          open.textContent=item.topic+" · "+item.status;
+          open.textContent=item.topic+" · "+item.status+
+            (item.status==="running"&&item.current_step?" ("+item.current_step+")":"");
           open.onclick=()=>openProject(item.project_id);
           row.append(open);
           if(item.status==="done"){
