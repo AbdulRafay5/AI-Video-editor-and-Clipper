@@ -9,7 +9,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from . import creator_api, creator_auto_api as auto, db
 
@@ -44,8 +44,9 @@ def _set_item(item_id, status, error=None):
         (status, error, item_id))
 
 
-def _run(batch_id):
-    from app import app
+def _run(batch_id, app):
+    # Reuse the active app: reimporting app during python app.py execution
+    # would initialise a second app and trigger database restart recovery.
     with app.test_client() as client:
         try:
             batch = db.query_one("SELECT * FROM creator_batches WHERE id=?", (batch_id,))
@@ -134,7 +135,7 @@ def create_batch():
             conn.execute(
                 "INSERT INTO creator_batch_items(batch_id,project_id) VALUES (?,?)",
                 (batch_id, pid))
-    _executor.submit(_run, batch_id)
+    _executor.submit(_run, batch_id, current_app._get_current_object())
     return jsonify(batch=_details(batch_id)), 202
 
 
@@ -173,5 +174,5 @@ def retry_batch(batch_id):
             conn.execute(
                 "UPDATE creator_batches SET status='running',updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (batch_id,))
-        _executor.submit(_run, batch_id)
+        _executor.submit(_run, batch_id, current_app._get_current_object())
     return jsonify(batch=_details(batch_id)), 202
