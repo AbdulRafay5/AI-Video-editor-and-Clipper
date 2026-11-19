@@ -319,6 +319,21 @@ def prepare_footage(pid, source, slot, current):
     trim_end = current.get("trim_end")
     if trim_end is not None and trim_end <= trim_start:
         raise EditError("Trim end must be greater than trim start.")
+    if trim_start > 0 or trim_end is not None:
+        from . import video
+        try:
+            duration = float(video.probe(source)["duration"])
+        except (video.VideoError, OSError, ValueError, KeyError) as exc:
+            raise EditError("Could not read the source footage duration.") from exc
+        if not math.isfinite(duration) or duration <= 0:
+            raise EditError("Source footage has no valid duration.")
+        # A small margin permits common container/stream timestamp rounding.
+        tolerance = 0.05
+        if trim_start >= duration - tolerance:
+            raise EditError("Clip in must be before the end of the source footage.")
+        if trim_end is not None and trim_end > duration + tolerance:
+            raise EditError(
+                f"Clip out ({trim_end:g}s) exceeds source footage ({duration:.2f}s).")
     if (current["fit"] == "cover" and current["speed"] == 1.0
             and crop_x == 0.5 and crop_y == 0.5
             and trim_start == 0.0 and trim_end is None):
