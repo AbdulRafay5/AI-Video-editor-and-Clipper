@@ -136,6 +136,18 @@ class NeuralVideoTests(unittest.TestCase):
         self.assertEqual(self.client.get(self.url).get_json()["status"],"interrupted")
         self.assertNotEqual(creator._project(self.pid)["status"],"generating_video")
 
+    def test_executor_shutdown_recovers_from_queued_neural_job(self):
+        with patch.object(model, "dependencies_ready", return_value=True), \
+             patch.object(video_api._executor, "submit",
+                          side_effect=RuntimeError("executor shut down")):
+            response = self.client.post(
+                self.url + "/generate", json={"approve_model_download": False})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(creator._project(self.pid)["status"], "script_ready")
+        state = self.client.get(self.url).get_json()
+        self.assertEqual(state["status"], "blocked")
+        self.assertIn("restart", state["report"]["errors"]["general"])
+
     def test_start_is_asynchronous_and_validates_boolean(self):
         with patch.object(model,"dependencies_ready",return_value=True), \
              patch.object(video_api._executor,"submit") as submit:
