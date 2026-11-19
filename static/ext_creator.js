@@ -1276,6 +1276,57 @@
           }
         };
         wrap.append(label, file, upload, state);
+        if(clips[slot]){
+          const previewToggle=document.createElement("button");
+          previewToggle.type="button";
+          previewToggle.className="secondary";
+          previewToggle.textContent="Preview scene footage";
+          const previewBox=document.createElement("div");
+          previewBox.style.cssText="display:none;width:100%;max-width:480px;margin-top:8px";
+          const player=document.createElement("video");
+          player.controls=true;
+          player.preload="none";
+          player.playsInline=true;
+          player.style.cssText="width:100%;max-height:360px;background:#111;border-radius:8px";
+          const hint=document.createElement("p");
+          hint.className="muted";
+          hint.textContent="Preview shows original footage and saved trim in/out times; final crop, speed, captions and transitions appear after rendering. Some MOV/MKV codecs may not play in this browser.";
+          let inPoint=0,outPoint=null;
+          request("GET","/api/creator/projects/"+project.id+"/edit/scene-effects")
+            .then(({effects})=>{
+              if(selected!==project.id)return;
+              const setting=effects?.[slot]||{};
+              inPoint=Number(setting.trim_start||0);
+              outPoint=setting.trim_end==null?null:Number(setting.trim_end);
+            }).catch(()=>{});
+          player.addEventListener("loadedmetadata",()=>{
+            if(inPoint>0&&inPoint<player.duration)player.currentTime=inPoint;
+          });
+          player.addEventListener("timeupdate",()=>{
+            if(outPoint!==null&&player.currentTime>=outPoint){
+              player.pause();
+              player.currentTime=Math.max(0,inPoint);
+            }
+          });
+          player.addEventListener("error",()=>{
+            hint.textContent="Your browser cannot preview this clip format. The local FFmpeg renderer may still process it.";
+          });
+          previewToggle.onclick=()=>{
+            const opening=previewBox.style.display==="none";
+            previewBox.style.display=opening?"block":"none";
+            previewToggle.textContent=opening?"Close footage preview":"Preview scene footage";
+            if(opening){
+              player.src="/api/creator/projects/"+project.id+"/visuals/"+slot+"/preview";
+              player.load();
+            }else{
+              player.pause();
+              player.removeAttribute("src");
+              player.load();
+            }
+          };
+          previewBox.append(player,hint);
+          wrap.append(previewToggle,previewBox);
+        }
         const source = sources[slot];
         if (source && ["pixabay","pexels","coverr"].includes(source.provider)) {
           const note = document.createElement("span");
