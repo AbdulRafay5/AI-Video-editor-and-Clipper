@@ -1,6 +1,9 @@
 """Creator Studio narration stage: durable per-scene audio and precise offsets."""
 import json
 import logging
+import io
+import tempfile
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -13,6 +16,8 @@ from . import db, local_narration
 bp = Blueprint("creator_narration", __name__)
 log = logging.getLogger("clipper.creator_narration")
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="creator-voice")
+_preview_lock = threading.Lock()
+_PREVIEW_TEXT = "Welcome! Here is a short preview of this narration voice."
 
 
 def _project(pid):
@@ -111,6 +116,38 @@ def narration_capabilities():
         default = next((e for e in options if e["ready"]), None)
     return jsonify(engines=options, default=default["name"] if default else None,
                    free=True, online_optional=True)
+
+
+@bp.post("/api/creator/narration/preview")
+def preview_voice():
+    """Produce a disposable WAV preview without touching project stages."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) - {"engine", "voice"}:
+        return jsonify(error="Choose an available narration engine and voice."), 400
+    if type(body.get("engine")) is not str or type(body.get("voice")) is not str:
+        return jsonify(error="Select a voice from the available list."), 400
+    try:
+        engine = local_narration.select_backend(body["engine"], body["voice"])
+    except local_narration.NarrationError as exc:
+        return jsonify(error=str(exc)), 400
+    if not _preview_lock.acquire(blocking=False):
+        return jsonify(error="A voice preview is already running."), 409
+    try:
+        with tempfile.TemporaryDirectory(prefix="creator-voice-preview-") as folder:
+            destination = Path(folder) / "preview.wav"
+            local_narration.synthesize(_PREVIEW_TEXT, destination, engine)
+            # Keep previews bounded; do not expose arbitrary filesystem paths.
+            if not destination.is_file() or destination.stat().st_size > 10 * 1024 * 1024:
+                return jsonify(error="Voice preview is unavailable or too large."), 422
+            audio = io.BytesIO(destination.read_bytes())
+        audio.seek(0)
+        return send_file(audio, mimetype="audio/wav", as_attachment=False,
+                         download_name="voice-preview.wav", max_age=0)
+    except (local_narration.NarrationError, OSError) as exc:
+        log.warning("Voice preview failed: %s", type(exc).__name__)
+        return jsonify(error="Voice preview failed; check the voice installation."), 503
+    finally:
+        _preview_lock.release()
 
 
 @bp.get("/api/creator/projects/<int:pid>/narration")
