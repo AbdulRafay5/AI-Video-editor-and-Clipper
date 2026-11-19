@@ -1007,6 +1007,76 @@
         await openProject(project.id);
       }catch(err){assignmentStatus.textContent=err.message;assignmentSave.disabled=false;}
     };
+    const effectsPanel=document.createElement("section");
+    effectsPanel.className="card";
+    const effectsTitle=document.createElement("h4");
+    effectsTitle.textContent="Per-scene footage effects";
+    const effectsHint=document.createElement("p");
+    effectsHint.className="muted";
+    effectsHint.textContent="Override speed or framing individually for each scene. Narration and subtitle timing remain unchanged.";
+    effectsPanel.append(effectsTitle,effectsHint);
+    const effectsRows={};
+    const effectsSlots=["hook",...script.scenes.map((_,i)=>"scene_"+i),"closing"];
+    for(const slot of effectsSlots){
+      const name=slot==="hook"?"Opening":slot==="closing"?"Ending":
+        "Scene "+(Number(slot.split("_")[1])+1);
+      const wrap=document.createElement("div");
+      wrap.className="card";
+      const label=document.createElement("strong");
+      label.textContent=name;
+      const speedLabel=document.createElement("label");
+      speedLabel.textContent=" Playback speed ";
+      const speedSelect=document.createElement("select");
+      for(const [value,text] of [
+        ["","Global default"],["0.5","0.5×"],["0.75","0.75×"],
+        ["1","1×"],["1.25","1.25×"],["1.5","1.5×"],["2","2×"]]){
+        const option=document.createElement("option");
+        option.value=value;option.textContent=text;speedSelect.append(option);
+      }
+      speedLabel.append(speedSelect);
+      const fitLabel=document.createElement("label");
+      fitLabel.textContent=" Framing ";
+      const fitSelect=document.createElement("select");
+      for(const [value,text] of [
+        ["","Global default"],["cover","Crop to fill"],["contain","Letterbox"]]){
+        const option=document.createElement("option");
+        option.value=value;option.textContent=text;fitSelect.append(option);
+      }
+      fitLabel.append(fitSelect);
+      wrap.append(label,speedLabel,fitLabel);
+      effectsPanel.append(wrap);
+      effectsRows[slot]={speedSelect,fitSelect};
+    }
+    const effectsSave=document.createElement("button");
+    effectsSave.type="button";effectsSave.className="secondary";
+    effectsSave.textContent="Save per-scene effects";
+    const effectsStatus=document.createElement("p");
+    effectsStatus.className="muted";
+    effectsPanel.append(effectsSave,effectsStatus);
+    visualBox.append(effectsPanel);
+    request("GET","/api/creator/projects/"+project.id+"/edit/scene-effects")
+      .then(({effects})=>{
+        if(selected!==project.id)return;
+        for(const [slot,fields] of Object.entries(effectsRows)){
+          fields.speedSelect.value=effects[slot]?.speed==null?"":String(effects[slot].speed);
+          fields.fitSelect.value=effects[slot]?.fit||"";
+        }
+      }).catch(err=>{if(selected===project.id)effectsStatus.textContent=err.message;});
+    effectsSave.onclick=async()=>{
+      effectsSave.disabled=true;
+      try{
+        const effects={};
+        for(const [slot,fields] of Object.entries(effectsRows)){
+          const override={};
+          if(fields.speedSelect.value) override.speed=Number(fields.speedSelect.value);
+          if(fields.fitSelect.value) override.fit=fields.fitSelect.value;
+          if(Object.keys(override).length) effects[slot]=override;
+        }
+        await request("PUT","/api/creator/projects/"+project.id+"/edit/scene-effects",{effects});
+        say("Scene effects saved. Video timing remains aligned with narration.");
+        await openProject(project.id);
+      }catch(err){effectsStatus.textContent=err.message;effectsSave.disabled=false;}
+    };
     const renderButton = document.createElement("button");
     renderButton.type = "button";
     renderButton.textContent = "Render complete video";
