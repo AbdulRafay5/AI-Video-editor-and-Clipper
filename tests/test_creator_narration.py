@@ -96,6 +96,33 @@ class NarrationTests(unittest.TestCase):
         self.assertEqual(self.client.get(
             f"/api/creator/projects/{self.pid}/narration/audio?segment=999").status_code, 404)
 
+    def test_paced_narration_is_recorded_and_uses_measured_wav_lengths(self):
+        self.client.put(f"/api/creator/projects/{self.pid}/script",json=SCRIPT)
+        selected={"name":"kokoro","voice":"af_heart","ready":True,"pace":0.8}
+        def synthesize(text,target,engine):
+            self.assertEqual(engine["pace"],0.8)
+            return make_wav(target,0.3)
+        with patch.object(local_narration,"synthesize",side_effect=synthesize), \
+             patch.object(local_narration,"combine",
+                          side_effect=lambda files,out:make_wav(out,1.2)):
+            narration._run(self.pid,SCRIPT,selected)
+        saved=self.client.get(f"/api/creator/projects/{self.pid}/narration").get_json()
+        artifact=saved["narration"]["artifact"]
+        self.assertEqual(artifact["pace"],0.8)
+        self.assertAlmostEqual(artifact["segments"][1]["start"],0.3,places=2)
+        self.assertAlmostEqual(artifact["segments"][2]["start"],0.6,places=2)
+
+    def test_generation_rejects_unsupported_pace_without_starting(self):
+        self.client.put(f"/api/creator/projects/{self.pid}/script",json=SCRIPT)
+        selected={"name":"windows-sapi","voice":"Windows default","ready":True}
+        with patch.object(local_narration,"select_backend",return_value=selected), \
+             patch.object(narration._executor,"submit") as submit:
+            response=self.client.post(f"/api/creator/projects/{self.pid}/narration/generate",
+                                      json={"engine":"windows-sapi","voice":"Windows default",
+                                            "pace":1.2})
+        self.assertEqual(response.status_code,503)
+        submit.assert_not_called()
+
     def test_edits_disallowed_during_running_voice_job(self):
         self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
         db.execute("UPDATE creator_projects SET status='generating_narration' WHERE id=?", (self.pid,))
