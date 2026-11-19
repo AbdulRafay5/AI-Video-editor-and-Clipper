@@ -202,6 +202,33 @@ class CreatorEditingTests(unittest.TestCase):
         db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
         self.assertEqual(self.client.put(endpoint,json={"effects":{}}).status_code,409)
 
+    def test_scene_crop_focus_validation_and_render_invalidation(self):
+        endpoint = f"/api/creator/projects/{self.pid}/edit/scene-effects"
+        for invalid in (True, -0.1, 1.1, "1", None, float("inf")):
+            if invalid == float("inf"):
+                # Flask's JSON codec may encode Infinity non-standardly;
+                # exercise validator directly instead.
+                with self.assertRaises(edit.EditError):
+                    edit.validate_scene_effects({"hook": {"crop_x": invalid}},
+                                                ["hook", "scene_0", "closing"])
+                continue
+            response = self.client.put(endpoint, json={
+                "effects": {"hook": {"crop_x": invalid}}})
+            self.assertEqual(response.status_code, 400, invalid)
+        db.execute("UPDATE creator_stages SET status='done' WHERE project_id=? "
+                   "AND stage IN ('narration','visuals','render')", (self.pid,))
+        chosen = {"hook": {"crop_x": 0.0, "crop_y": 1.0},
+                  "scene_0": {"fit": "cover", "crop_x": 1.0}}
+        result = self.client.put(endpoint, json={"effects": chosen})
+        self.assertEqual(result.status_code, 200, result.get_json())
+        self.assertEqual(self.client.get(endpoint).get_json()["effects"], chosen)
+        statuses = {r["stage"]: r["status"] for r in db.query(
+            "SELECT stage,status FROM creator_stages WHERE project_id=?", (self.pid,))}
+        self.assertEqual(statuses["render"], "pending")
+        self.assertEqual(statuses["narration"], "done")
+        self.assertEqual(statuses["visuals"], "done")
+        self.assertFalse(self.client.put(endpoint, json={"effects": chosen}).get_json()["changed"])
+
     def test_scene_effects_ignore_stale_slots(self):
         endpoint=f"/api/creator/projects/{self.pid}/edit/scene-effects"
         self.client.put(endpoint,json={"effects":{"scene_0":{"speed":2.0}}})
@@ -271,6 +298,33 @@ class CreatorEditingTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),"FFmpeg unavailable")
 class ActualFootagePreprocessingTests(CreatorEditingTests):
+    def test_real_ffmpeg_crop_focus_changes_output_without_touching_source(self):
+        root = Path(self.temp.name)
+        source = root / "wide.mp4"
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "testsrc2=size=480x180:rate=10:duration=1",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)],
+            check=True, timeout=35)
+        base = {"format": "square", "fit": "cover", "speed": 1.0,
+                "order": "script"}
+        left = edit.prepare_footage(self.pid, source, "hook",
+                                    {**base, "crop_x": 0.0})
+        right = edit.prepare_footage(self.pid, source, "hook",
+                                     {**base, "crop_x": 1.0})
+        self.assertNotEqual(left, right)
+        self.assertTrue(left.is_file())
+        self.assertTrue(right.is_file())
+        self.assertEqual(edit.prepare_footage(self.pid, source, "hook",
+                                               {**base, "crop_x": 0.0}), left)
+        def first_frame(path):
+            return subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(path),
+                 "-frames:v", "1", "-f", "framemd5", "-"],
+                capture_output=True, check=True, timeout=20).stdout
+        self.assertNotEqual(first_frame(left), first_frame(right))
+        self.assertTrue(source.exists())
+
     def test_real_ffmpeg_contains_full_frame_and_changes_speed(self):
         folder=Path(self.temp.name)
         source=folder/"original.mp4"
