@@ -93,6 +93,38 @@ class RecordedNarrationTests(unittest.TestCase):
         output.write_bytes(wav_bytes(0.75))
         return 0.75
 
+    def test_failure_after_full_wav_cleans_run_and_restores_previous_state(self):
+        original = {"run_id": "a" * 32, "segments": [{"text": "Previous"}]}
+        db.execute("UPDATE creator_stages SET status='done', artifact_json=? "
+                   "WHERE project_id=? AND stage='narration'",
+                   (json.dumps(original), self.pid))
+        db.execute("UPDATE creator_projects SET status='narration_ready' WHERE id=?",
+                   (self.pid,))
+        def failing_after_full(paths, output):
+            output.write_bytes(wav_bytes(0.75))
+            raise RuntimeError("simulated post-output failure")
+        with patch.object(narration.shutil, "which", return_value="ffmpeg"), \
+             patch.object(narration.subprocess, "run", side_effect=self.fake_ffmpeg), \
+             patch.object(narration.local_narration, "combine",
+                          side_effect=failing_after_full):
+            response = self.client.post(self.url, data=self.payload())
+        self.assertEqual(response.status_code, 500, response.get_json())
+        self.assertEqual(db.query_one("SELECT status FROM creator_projects WHERE id=?",
+                                      (self.pid,))["status"], "narration_ready")
+        self.assertEqual(json.loads(db.query_one(
+            "SELECT artifact_json FROM creator_stages WHERE project_id=? "
+            "AND stage='narration'", (self.pid,))["artifact_json"]), original)
+        root = narration._root(self.pid)
+        self.assertFalse(list(root.iterdir()) if root.is_dir() else [])
+
+    def test_failed_decoding_removes_partial_import_directory(self):
+        with patch.object(narration.shutil, "which", return_value="ffmpeg"), \
+             patch.object(narration.subprocess, "run", side_effect=self.fake_ffmpeg):
+            result = self.client.post(self.url, data=self.payload(corrupt=1))
+        self.assertEqual(result.status_code, 422)
+        root = narration._root(self.pid)
+        self.assertFalse(list(root.iterdir()) if root.is_dir() else [])
+
     def test_failed_upload_preserves_existing_narration(self):
         original = {"run_id": "a" * 32, "segments": [{"text": "Previous"}]}
         db.execute("UPDATE creator_stages SET status='done', artifact_json=? "
