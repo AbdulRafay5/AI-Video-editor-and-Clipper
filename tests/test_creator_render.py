@@ -185,6 +185,40 @@ class RenderBridgeTests(unittest.TestCase):
         state = self.client.get(f"/api/creator/projects/{self.pid}/render").get_json()
         self.assertEqual(state["status"], "failed")
 
+    def test_restart_recovers_render_without_saved_narration(self):
+        db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
+        db.execute("UPDATE creator_stages SET status='running' "
+                   "WHERE project_id=? AND stage='render'", (self.pid,))
+        db.init_db()
+        self.assertEqual(render._project(self.pid)["status"], "script_ready")
+        stage = db.query_one(
+            "SELECT status FROM creator_stages WHERE project_id=? AND stage='render'",
+            (self.pid,))
+        self.assertEqual(stage["status"], "failed")
+
+    def test_restart_preserves_prior_successful_narration_during_new_voice_failure(self):
+        self._add_narration()
+        db.execute("UPDATE creator_projects SET status='generating_narration' WHERE id=?",
+                   (self.pid,))
+        db.init_db()
+        self.assertEqual(render._project(self.pid)["status"], "narration_ready")
+        stage = db.query_one(
+            "SELECT status FROM creator_stages WHERE project_id=? AND stage='narration'",
+            (self.pid,))
+        self.assertEqual(stage["status"], "done")
+
+    def test_restart_recovers_narration_without_saved_audio(self):
+        db.execute("UPDATE creator_projects SET status='generating_narration' WHERE id=?",
+                   (self.pid,))
+        db.execute("UPDATE creator_stages SET status='running' "
+                   "WHERE project_id=? AND stage='narration'", (self.pid,))
+        db.init_db()
+        self.assertEqual(render._project(self.pid)["status"], "script_ready")
+        stage = db.query_one(
+            "SELECT status FROM creator_stages WHERE project_id=? AND stage='narration'",
+            (self.pid,))
+        self.assertEqual(stage["status"], "failed")
+
     def test_music_stage_invalidation_and_safety(self):
         bad = self.client.post(f"/api/creator/projects/{self.pid}/music",
                                data={"audio": (io.BytesIO(b"data"), "unsafe.exe")})
