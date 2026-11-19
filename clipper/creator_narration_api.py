@@ -2,6 +2,7 @@
 import json
 import logging
 import io
+import math
 import tempfile
 import threading
 import uuid
@@ -45,6 +46,46 @@ def _segments(script):
     return segments
 
 
+def _sidecar_words(sidecar, duration, offset):
+    """Read optional TTS word boundaries without making audio generation fragile."""
+    if not sidecar.is_file():
+        return []
+    try:
+        # Sidecars are small metadata; reject unexpectedly large files.
+        if sidecar.stat().st_size > 2 * 1024 * 1024:
+            raise ValueError("Word timing metadata is too large")
+        records = json.loads(sidecar.read_text(encoding="utf-8"))
+        if not isinstance(records, list):
+            raise ValueError("Word timing metadata must be an array")
+    except (OSError, UnicodeError, ValueError) as exc:
+        log.warning("Ignoring invalid narration timing sidecar %s: %s", sidecar.name, exc)
+        return []
+
+    words = []
+    for record in records[:2500]:
+        if not isinstance(record, dict):
+            continue
+        word = record.get("word")
+        if not isinstance(word, str) or not word.strip():
+            continue
+        try:
+            start, end = float(record["start"]), float(record["end"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not (math.isfinite(start) and math.isfinite(end)):
+            continue
+        if 0 <= start < end <= duration + 0.5:
+            clipped_end = min(end, duration)
+            if clipped_end <= start:
+                continue
+            words.append({
+                "word": word[:100],
+                "start": round(offset + start, 3),
+                "end": round(offset + clipped_end, 3),
+            })
+    return words
+
+
 def _run(pid, script, engine):
     run_id = uuid.uuid4().hex
     folder = _root(pid) / run_id
@@ -65,16 +106,7 @@ def _run(pid, script, engine):
         exact_words = []
         for i, (segment, duration) in enumerate(zip(parts, durations)):
             sidecar = folder / ("part_%02d.words.json" % i)
-            if sidecar.is_file():
-                raw_words = json.loads(sidecar.read_text(encoding="utf-8"))
-                for word in raw_words[:2500]:
-                    start, end = float(word["start"]), float(word["end"])
-                    if 0 <= start < end <= duration + 0.5:
-                        exact_words.append({
-                            "word": str(word["word"])[:100],
-                            "start": round(offset + start, 3),
-                            "end": round(min(offset + end, offset + duration), 3),
-                        })
+            exact_words.extend(_sidecar_words(sidecar, duration, offset))
             timing.append({
                 "kind": segment["kind"], "scene_index": segment.get("scene_index"),
                 "start": round(offset, 3), "end": round(offset + duration, 3),
