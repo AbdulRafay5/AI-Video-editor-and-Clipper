@@ -180,7 +180,8 @@ def set_scene_assignments(pid):
                    or not isinstance(source, str) or source not in slots
                    for target, source in assignments.items()):
                 return jsonify(error="Scene assignments must use existing project slots."), 400
-            cleaned = {k: v for k, v in assignments.items() if k != v}
+            # An explicit self-assignment must override reverse/shuffle too.
+            cleaned = dict(assignments)
             previous = conn.execute(
                 "SELECT mapping_json FROM creator_scene_assignments "
                 "WHERE project_id=?", (pid,)).fetchone()
