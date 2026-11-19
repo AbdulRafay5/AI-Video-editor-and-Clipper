@@ -7,7 +7,7 @@ import config
 from concurrent.futures import ThreadPoolExecutor
 from flask import Blueprint, jsonify, request
 
-from . import db, llm
+from . import db, llm, creator_inference
 
 bp = Blueprint("creator", __name__)
 log = logging.getLogger("clipper.creator")
@@ -172,7 +172,7 @@ def generate_script(pid):
             return jsonify(error="Script generation is already running."), 409
         conn.execute("UPDATE creator_stages SET status='running', error=NULL, "
                      "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='script'", (pid,))
-    _executor.submit(_run_script, pid)
+    _executor.submit(creator_inference.run_exclusive, _run_script, pid)
     return jsonify(ok=True, status="generating_script"), 202
 
 
