@@ -175,8 +175,7 @@ def upload_visual(pid, slot):
                 conn.execute("UPDATE creator_stages SET artifact_json=?, status=?, error=NULL, "
                              "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='visuals'",
                              (json.dumps({**artifact, "clips": clips, "sources": sources}), stage, pid))
-                conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
-                             "WHERE project_id=? AND stage='render'", (pid,))
+                invalidate_render(conn, pid)
             # Do not remove files used by older immutable render revisions.
             return jsonify(ok=True, slot=slot, filename=filename,
                            duration=info["duration"], complete=stage=="done"), 201
@@ -269,8 +268,7 @@ def upload_music(pid):
                 conn.execute("UPDATE creator_stages SET status='done', artifact_json=?, error=NULL, "
                              "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='music'",
                              (json.dumps({"filename": name, "duration": duration}), pid))
-                conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
-                             "WHERE project_id=? AND stage='render'", (pid,))
+                invalidate_render(conn, pid)
             return jsonify(ok=True, duration=duration), 201
         except ProjectError as exc:
             file.unlink(missing_ok=True)
@@ -292,8 +290,7 @@ def clear_music(pid):
         with db.get_db() as conn:
             conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
                          "WHERE project_id=? AND stage='music'", (pid,))
-            conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
-                         "WHERE project_id=? AND stage='render'", (pid,))
+            invalidate_render(conn, pid)
         return jsonify(ok=True)
 
 
