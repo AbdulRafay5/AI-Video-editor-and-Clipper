@@ -90,6 +90,46 @@ class NeuralVoiceTests(unittest.TestCase):
             self.assertAlmostEqual(words[0]["end"], 0.5)
             self.assertEqual(path.stat().st_size, 256)
 
+    def test_native_pace_validation_preserves_offline_defaults(self):
+        local_voice={"name":"kokoro","voice":"af_heart","ready":True}
+        self.assertEqual(local.with_pace(local_voice,0.8)["pace"],0.8)
+        self.assertEqual(local.with_pace(local_voice,1.2)["pace"],1.2)
+        self.assertEqual(local.with_pace({"name":"windows-sapi","ready":True},1)["pace"],1)
+        for invalid in (True, "1.2", 0.3, 3, None):
+            with self.assertRaises(local.NarrationError):
+                local.with_pace(local_voice,invalid)
+        with self.assertRaises(local.NarrationError):
+            local.with_pace({"name":"piper","ready":True},1.2)
+
+    def test_kokoro_native_pace_is_forwarded_to_local_server(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/"speech.wav"
+            def fake_request(path,payload=None,timeout=None):
+                self.assertEqual(payload["speed"],0.8)
+                return b"x"*256
+            with patch.object(neural,"_kokoro_request",side_effect=fake_request), \
+                 patch.object(neural,"_to_wav",side_effect=lambda a,b: b.write_bytes(b"test")), \
+                 patch.object(local,"wav_duration",return_value=0.9):
+                self.assertEqual(neural.speak_neural("Hello",target,{
+                    "name":"kokoro","voice":"af_heart","pace":0.8}),0.9)
+
+    def test_edge_native_pace_uses_rate_option(self):
+        import asyncio
+        import sys
+        import types
+        observed=[]
+        async def fake_stream():
+            yield {"type":"audio","data":b"x"*256}
+        def fake_communicate(text,voice,rate):
+            observed.append(rate)
+            return types.SimpleNamespace(stream=fake_stream)
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/"paced.mp3"
+            with patch.dict(sys.modules,{"edge_tts":types.SimpleNamespace(
+                Communicate=fake_communicate)}):
+                asyncio.run(neural._edge_stream("Hello","en-GB-SoniaNeural",path,1.2))
+            self.assertEqual(observed,["+20%"])
+
     def test_invalid_voice_never_sends_request(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch.object(neural, "_kokoro_request") as send:
