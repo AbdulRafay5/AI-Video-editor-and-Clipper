@@ -62,7 +62,7 @@ def _generate(pid, allow_download):
                                 "UPDATE creator_stages SET status=?,artifact_json=?,error=NULL,"
                                 "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='visuals'",
                                 ("done" if all(clips.get(s) for s in slots) else "pending",
-                                 json.dumps({"clips": clips, "sources": sources}), pid))
+                                 json.dumps({**prior, "clips": clips, "sources": sources}), pid))
                             conn.execute(
                                 "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
                                 "WHERE project_id=? AND stage='render'", (pid,))
@@ -144,7 +144,7 @@ def _generate_all(pid, allow_download):
                     "UPDATE creator_stages SET status='done',artifact_json=?,"
                     "error=NULL,updated_at=CURRENT_TIMESTAMP "
                     "WHERE project_id=? AND stage='visuals'",
-                    (json.dumps({"clips": replacements, "sources": sources}), pid))
+                    (json.dumps({**old, "clips": replacements, "sources": sources}), pid))
                 conn.execute(
                     "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
                     "WHERE project_id=? AND stage='render'", (pid,))
