@@ -83,6 +83,7 @@ def _run(pid, script, engine):
             offset += duration
         artifact = {
             "engine": engine["name"], "voice": engine["voice"],
+            "pace": engine.get("pace", 1.0),
             "run_id": run_id, "file": "full.wav",
             "duration": actual_duration, "segments": timing,
             "aligned_words": exact_words, "word_timing_source": "edge" if exact_words else None,
@@ -122,12 +123,14 @@ def narration_capabilities():
 def preview_voice():
     """Produce a disposable WAV preview without touching project stages."""
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or set(body) - {"engine", "voice"}:
+    if not isinstance(body, dict) or set(body) - {"engine", "voice", "pace"}:
         return jsonify(error="Choose an available narration engine and voice."), 400
     if type(body.get("engine")) is not str or type(body.get("voice")) is not str:
         return jsonify(error="Select a voice from the available list."), 400
     try:
-        engine = local_narration.select_backend(body["engine"], body["voice"])
+        engine = local_narration.with_pace(
+            local_narration.select_backend(body["engine"], body["voice"]),
+            body.get("pace", 1.0))
     except local_narration.NarrationError as exc:
         return jsonify(error=str(exc)), 400
     if not _preview_lock.acquire(blocking=False):
@@ -165,7 +168,9 @@ def generate_narration(pid):
     if not isinstance(body, dict):
         return jsonify(error="Invalid voice selection."), 400
     try:
-        engine = local_narration.select_backend(body.get("engine"), body.get("voice"))
+        engine = local_narration.with_pace(
+            local_narration.select_backend(body.get("engine"), body.get("voice")),
+            body.get("pace", 1.0))
     except local_narration.NarrationError as exc:
         return jsonify(error=str(exc)), 503
     with db.get_db() as conn:
