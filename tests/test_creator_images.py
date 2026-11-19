@@ -56,6 +56,18 @@ class ImageTests(unittest.TestCase):
                 self.path+"/fill", json={"approve_model_download": False}).status_code,503)
         self.assertNotEqual(creator._project(self.pid)["status"], "generating_images")
 
+    def test_rejected_executor_does_not_leave_project_busy(self):
+        with patch.object(local_imagegen, "dependencies_ready", return_value=True), \
+             patch.object(images._executor, "submit",
+                          side_effect=RuntimeError("executor shutting down")):
+            response = self.client.post(
+                self.path + "/fill", json={"approve_model_download": False})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(creator._project(self.pid)["status"], "script_ready")
+        job = self.client.get(self.path).get_json()
+        self.assertEqual(job["status"], "blocked")
+        self.assertIn("restart", job["report"]["errors"]["general"].lower())
+
     def test_missing_model_preserves_existing_footage_and_no_download(self):
         folder = creator._root(self.pid)/"visuals"
         folder.mkdir(parents=True, exist_ok=True)
