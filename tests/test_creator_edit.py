@@ -104,6 +104,26 @@ class CreatorEditingTests(unittest.TestCase):
         response=self.client.put(self.endpoint,json=payload)
         self.assertFalse(response.get_json()["changed"])
 
+    def test_music_ducking_is_opt_in_and_keeps_original_stages(self):
+        self.assertFalse(self.client.get(self.endpoint).get_json()["options"]["music_ducking"])
+        for invalid in ("true", 1, None, []):
+            response = self.client.put(
+                self.endpoint, json={**edit.DEFAULTS, "music_ducking": invalid})
+            self.assertEqual(response.status_code, 400)
+        db.execute("UPDATE creator_stages SET status='done' WHERE project_id=? "
+                   "AND stage IN ('narration','visuals','render')", (self.pid,))
+        result = self.client.put(
+            self.endpoint, json={**edit.DEFAULTS, "music_ducking": True})
+        self.assertEqual(result.status_code, 200)
+        self.assertTrue(result.get_json()["changed"])
+        self.assertTrue(self.client.get(self.endpoint).get_json()["options"]["music_ducking"])
+        rows = db.query("SELECT stage,status FROM creator_stages WHERE project_id=?",
+                        (self.pid,))
+        statuses = {row["stage"]: row["status"] for row in rows}
+        self.assertEqual(statuses["render"], "pending")
+        self.assertEqual(statuses["visuals"], "done")
+        self.assertEqual(statuses["narration"], "done")
+
     def test_legacy_four_field_settings_migrate_to_audio_defaults(self):
         legacy={"format":"landscape","fit":"cover","speed":1.5,"order":"script"}
         db.execute("INSERT INTO creator_edit_settings(project_id,options_json) "
@@ -157,6 +177,11 @@ class CreatorEditingTests(unittest.TestCase):
         spec=render._manifest(self.pid,render._project(self.pid))
         self.assertEqual(spec["settings"]["narration_volume"], 1.5)
         self.assertEqual(spec["settings"]["bgm_volume"], 0.4)
+        self.assertFalse(spec["settings"]["music_ducking"])
+        adjusted["music_ducking"] = True
+        self.client.put(self.endpoint, json=adjusted)
+        spec = render._manifest(self.pid, render._project(self.pid))
+        self.assertTrue(spec["settings"]["music_ducking"])
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),"FFmpeg unavailable")
