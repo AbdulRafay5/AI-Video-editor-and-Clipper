@@ -101,6 +101,24 @@ or guarantee scene relevance or licensing: it is a more robust metadata ranking
 and retry strategy, not a computer-vision quality model. It never calls a
 paid provider or downloads content without approval.
 
+## Final MP4 integrity gate
+
+After rendering and optional finishing, Creator Studio now runs local FFprobe
+against the output MP4 before marking the render stage complete. The gate
+requires a decodable container, a usable video stream with positive dimensions,
+an audio stream, and a finite positive duration within a tolerance of the
+measured narration segments. It stores the checked duration, resolution and
+file size with the render artifact. The render status API exposes this metadata,
+and download/preview URLs are withheld if a verified file's size has changed
+since promotion. Legacy export records without this metadata remain readable
+for backwards compatibility.
+
+The check catches missing tracks, broken containers and gross duration errors.
+It is **not** frame-by-frame visual inspection, loudness measurement, a
+cryptographic integrity guarantee or complete hardware acceptance testing.
+FFprobe must be available locally. The original immutable renderer and older
+render caches remain untouched.
+
 ## Creator Studio captions and finishing
 
 The immutable upstream MoneyPrinterTurbo revision renderer is still responsible
