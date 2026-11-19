@@ -264,7 +264,8 @@ class AutomaticCreatorTests(unittest.TestCase):
                 "download_url": f"https://cdn.pixabay.com/video/{counter[0]}.mp4",
                 "source_page": "https://pixabay.com/videos/example/",
                 "creator": "fixture", "id": str(counter[0]),
-                "provider": "pixabay",
+                "provider": "pixabay", "duration": 5.0,
+                "width": 720, "height": 1280, "portrait": True,
             }]
 
         with patch.object(creator_api.llm, "status", return_value={
