@@ -206,8 +206,8 @@ def validate_scene_effects(effects, slots):
         raise EditError("Effects reference a scene that does not exist.")
     cleaned = {}
     for slot, effect in effects.items():
-        if not isinstance(effect, dict) or not effect or set(effect) - {"speed", "fit"}:
-            raise EditError("Each scene effect must set speed, fit or both.")
+        if not isinstance(effect, dict) or not effect or set(effect) - {"speed", "fit", "crop_x", "crop_y"}:
+            raise EditError("Scene effects may set speed, fit or crop position.")
         item = {}
         if "speed" in effect:
             speed = effect["speed"]
@@ -218,6 +218,12 @@ def validate_scene_effects(effects, slots):
             if effect["fit"] not in FITS:
                 raise EditError("Scene fitting must be cover or contain.")
             item["fit"] = effect["fit"]
+        for axis in ("crop_x", "crop_y"):
+            if axis in effect:
+                position = effect[axis]
+                if type(position) not in (int, float) or not math.isfinite(position) or not 0 <= position <= 1:
+                    raise EditError("Crop position must be between 0 and 1.")
+                item[axis] = float(position)
         cleaned[slot] = item
     return cleaned
 
@@ -232,7 +238,7 @@ def scene_effects(pid, slots):
     # Retain valid current slots after the script has been edited.
     return {slot: options for slot, options in saved.items()
             if slot in slots and isinstance(options, dict)
-            and not (set(options) - {"speed", "fit"})}
+            and not (set(options) - {"speed", "fit", "crop_x", "crop_y"})}
 
 
 @bp.get("/api/creator/projects/<int:pid>/edit/scene-effects")
@@ -290,7 +296,10 @@ def prepare_footage(pid, source, slot, current):
     a user-submitted filesystem path. Media files aren't edited in place.
     """
     source = Path(source)
-    if current["fit"] == "cover" and current["speed"] == 1.0:
+    crop_x = current.get("crop_x", 0.5)
+    crop_y = current.get("crop_y", 0.5)
+    if (current["fit"] == "cover" and current["speed"] == 1.0
+            and crop_x == 0.5 and crop_y == 0.5):
         return source
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -305,14 +314,14 @@ def prepare_footage(pid, source, slot, current):
     else:
         aspect_filter = (
             f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1"
+            f"crop={width}:{height}:(iw-ow)*{crop_x:.3f}:(ih-oh)*{crop_y:.3f},setsar=1"
         )
     filter_chain = f"setpts=(PTS-STARTPTS)/{speed:.6f},{aspect_filter},fps=30"
     stat = source.stat()
     identity = {
         "source": str(source.resolve()), "size": stat.st_size,
         "mtime_ns": stat.st_mtime_ns, "format": current["format"],
-        "fit": current["fit"], "speed": speed,
+        "fit": current["fit"], "speed": speed, "crop_x": crop_x, "crop_y": crop_y,
     }
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:32]
     from . import creator_render_api as creator
