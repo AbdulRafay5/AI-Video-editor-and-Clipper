@@ -497,3 +497,25 @@ installed. The test must not be skipped when reporting a verified render.
 
 Windows end-to-end verification on the owner's RTX 3060 system remains
 necessary before calling the complete Creator Studio production-ready.
+
+## Stabilization: trim bounds and project media cleanup
+
+Per-scene trim in/out points are checked against the source video's
+FFprobe-measured duration before preparing a new clip. The editor returns a
+specific error for a start at or beyond the end of the video, an out point
+past its duration, or unreadable footage. Source files remain unchanged.
+Trims still use the narration timeline for output pacing.
+
+Deleting a Creator Studio project now also removes its project-owned media
+directory under `data/creator/<project-id>/`, including cached intermediate
+outputs and rendered MP4s. **Export or back up any videos you want to keep
+before deleting a project.** The deletion endpoint refuses projects with
+active generation, active automatic production, or queued/running batch items.
+It never takes a filesystem path from the request, rejects symlinked project
+directories for cleanup, and returns a warning if database deletion succeeds
+but disk cleanup fails. Unrelated projects' media is not touched.
+
+Tests isolate Creator data in temporary folders and cover cleanup,
+active-job protection and out-of-range trim validation. These changes still
+require full automated and Windows acceptance testing.
+
