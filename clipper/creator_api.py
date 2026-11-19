@@ -195,7 +195,29 @@ def generate_script(pid):
             return jsonify(error="Script generation is already running."), 409
         conn.execute("UPDATE creator_stages SET status='running', error=NULL, "
                      "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='script'", (pid,))
-    _executor.submit(creator_inference.run_exclusive, _run_script, pid)
+    try:
+        _executor.submit(creator_inference.run_exclusive, _run_script, pid)
+    except RuntimeError:
+        # The executor can reject submissions during shutdown. Restore the
+        # last saved script, not a permanently busy phantom job.
+        message = "Script worker unavailable; restart the application."
+        with db.get_db() as conn:
+            has_script = conn.execute(
+                "SELECT script_json FROM creator_projects WHERE id=?", (pid,)
+            ).fetchone()
+            ready = "script_ready" if has_script and has_script["script_json"] else "draft"
+            conn.execute(
+                "UPDATE creator_projects SET status=?, error=?, "
+                "updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status='generating_script'",
+                (ready, message, pid))
+            conn.execute(
+                "UPDATE creator_stages SET status=?, error=?, "
+                "updated_at=CURRENT_TIMESTAMP "
+                "WHERE project_id=? AND stage='script' AND status='running'",
+                ("done" if ready == "script_ready" else "failed",
+                 message, pid))
+        return jsonify(error=message), 503
     return jsonify(ok=True, status="generating_script"), 202
 
 
