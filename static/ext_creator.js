@@ -779,7 +779,39 @@
     autoDownload.setAttribute("download","creator_"+project.id+".mp4");
     autoDownload.textContent="Download final MP4";
     autoDownload.style.display="none";
-    autoPanel.append(autoTitle,autoDesc,visualModeLabel,visualModeNote,stockApproval,autoImageDownloadLabel,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage,autoDownload);
+    const previewPanel=document.createElement("div");
+    previewPanel.style.display="none";
+    const previewHeading=document.createElement("h4");
+    previewHeading.textContent="Review finished video";
+    const finalPlayer=document.createElement("video");
+    finalPlayer.controls=true;
+    finalPlayer.preload="metadata";
+    finalPlayer.playsInline=true;
+    finalPlayer.style.cssText="width:100%;max-height:480px;background:#111;border-radius:8px";
+    const previewMessage=document.createElement("p");
+    previewMessage.className="muted";
+    previewPanel.append(previewHeading,finalPlayer,previewMessage);
+    autoPanel.append(autoTitle,autoDesc,visualModeLabel,visualModeNote,stockApproval,autoImageDownloadLabel,alignLabel,musicLabel,autoModelLabel,startAuto,autoMessage,autoDownload,previewPanel);
+    async function refreshExport(){
+      const info=await request("GET","/api/creator/projects/"+project.id+"/render");
+      if(selected!==project.id)return;
+      if(info.ready){
+        autoDownload.style.display="";
+        previewPanel.style.display="";
+        const url=info.preview_url;
+        if(finalPlayer.getAttribute("src")!==url){
+          finalPlayer.src=url;
+          finalPlayer.load();
+        }
+        previewMessage.textContent="Check visuals, narration and captions before publishing.";
+      }else{
+        autoDownload.style.display="none";
+        previewPanel.style.display="none";
+        finalPlayer.removeAttribute("src");
+        finalPlayer.load();
+        if(info.status==="done")previewMessage.textContent="Export file missing. Re-render this video.";
+      }
+    }
     visualBox.append(autoPanel);
     let autoPollTimer=null;
     async function refreshAuto(){
@@ -805,8 +837,10 @@
           const current=await request("GET","/api/creator/projects/"+project.id);
           if(selected!==project.id)return;
           if(current.project?.stages?.render?.status==="done"){
-            autoMessage.textContent="Video rendered. Review the final MP4 before publishing.";
-            autoDownload.style.display="";
+            await refreshExport();
+            autoMessage.textContent=autoDownload.style.display===""?
+              "Video ready for review. Play it below or download the final MP4.":
+              "Render stage completed, but the final MP4 is unavailable. Re-render the video.";
             request("GET","/api/creator/projects/"+project.id+"/visuals")
               .then(data=>{if(selected===project.id)drawSlots(data.clips||{},data.sources||{});})
               .catch(()=>{});
@@ -998,7 +1032,7 @@
       } catch (err) { say(err.message); renderButton.disabled = false; }
     };
     if (project.stages.render?.status === "done") {
-      autoDownload.style.display="";
+      refreshExport().catch(err=>{if(selected===project.id)previewMessage.textContent=err.message;});
     }
     const [titleLabel, titleInput] = field("Title", script.title, 1);
     const [hookLabel, hookInput] = field("Opening hook", script.hook, 2);
