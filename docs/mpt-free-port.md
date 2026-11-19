@@ -361,6 +361,26 @@ It reduces music during speech and raises it after speech stops; it does not
 analyze video content or guarantee a broadcast-quality mix. Ducking is
 disabled by default for old and new projects. Review the result before publishing.
 
+## Pausable multi-project batch queue
+
+The local sequential batch producer already supports 2–8 projects,
+independent status tracking, retrying incomplete projects, and review-only
+completion. Batches now have **Pause after current video** and
+**Resume remaining videos** controls in Creator Studio.
+
+Pausing changes the batch to `paused` and prevents the coordinator from
+starting another queued project. The currently active project is **not**
+cancelled, because interrupting an FFmpeg or model stage could leave
+incomplete media. The user can resume once that item finishes; the API
+rejects an early resume to avoid starting concurrent batch workers.
+Previously completed items and immutable render artifacts are preserved.
+
+This is a manual pause control, not a scheduling system, GPU resource
+manager, or automatic upload feature. Batch processing still runs
+sequentially to avoid competing inference workloads on a small local GPU.
+Regression tests cover pause, duplicate-pause rejection and safe resumption.
+Full Windows acceptance testing is still required.
+
 ## One-click automatic video production
 
 `clipper/creator_auto_api.py` adds an **opt-in**, persistent, single-project
