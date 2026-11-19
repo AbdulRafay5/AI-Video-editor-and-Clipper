@@ -131,6 +131,45 @@ class CreatorBatchTests(unittest.TestCase):
         self.assertTrue(batch._claim_item(bid, first))
         self.assertFalse(batch._claim_item(bid, first))
 
+    def test_timeout_pauses_batch_until_auto_worker_reaches_terminal_state(self):
+        response = self.client.post("/api/creator/batches", json=self.payload)
+        bid = response.get_json()["batch"]["id"]
+        item = response.get_json()["batch"]["items"][0]
+        self.assertTrue(batch._claim_item(bid, item["id"]))
+        states = iter([
+            {"status": "running", "report": {}},
+            {"status": "running", "report": {}},
+            {"status": "done", "report": {}},
+        ])
+        with patch.object(batch, "MAX_ITEM_SECONDS", 0), \
+             patch.object(batch.auto, "status", side_effect=lambda pid: next(states)), \
+             patch.object(batch.time, "sleep"):
+            final, exceeded = batch._wait_for_auto(bid, item["project_id"])
+        self.assertTrue(exceeded)
+        self.assertEqual(final["status"], "done")
+        self.assertEqual(self.client.get(f"/api/creator/batches/{bid}")
+                         .get_json()["batch"]["status"], "paused")
+        self.assertEqual(db.query_one(
+            "SELECT status FROM creator_batch_items WHERE id=?", (item["id"],)
+            )["status"], "running")
+        next_id = response.get_json()["batch"]["items"][1]["id"]
+        self.assertFalse(batch._claim_item(bid, next_id))
+        batch._set_item(item["id"], "done")
+        self.assertEqual(self.client.post(
+            f"/api/creator/batches/{bid}/retry").status_code, 202)
+
+    def test_worker_finishes_before_timeout_without_pausing(self):
+        response = self.client.post("/api/creator/batches", json=self.payload)
+        bid = response.get_json()["batch"]["id"]
+        pid = response.get_json()["batch"]["items"][0]["project_id"]
+        with patch.object(batch.auto, "status",
+                          return_value={"status": "done", "report": {}}):
+            final, exceeded = batch._wait_for_auto(bid, pid)
+        self.assertFalse(exceeded)
+        self.assertEqual(final["status"], "done")
+        self.assertEqual(self.client.get(f"/api/creator/batches/{bid}")
+                         .get_json()["batch"]["status"], "running")
+
     def test_app_restart_marks_running_batch_interrupted(self):
         response = self.client.post("/api/creator/batches", json=self.payload)
         bid = response.get_json()["batch"]["id"]
