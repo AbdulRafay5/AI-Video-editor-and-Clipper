@@ -122,6 +122,7 @@ class RenderSettings:
     fps: int = 30
     narration_volume: float = 1.0
     bgm_volume: float = 0.15
+    music_ducking: bool = False
 
     @classmethod
     def parse(cls, value: dict) -> RenderSettings:
@@ -145,6 +146,8 @@ class RenderSettings:
                 or not math.isfinite(number)
             ):
                 raise ProjectError(f"{name} must be finite and between 0 and 4")
+        if type(result.music_ducking) is not bool:
+            raise ProjectError("music_ducking must be a boolean")
         return result
 
 
@@ -230,7 +233,7 @@ def stage_graph(spec: dict) -> list[Stage]:
         scene_fingerprints.append(render)
     assembly = _fingerprint([transform, "assembly", scene_fingerprints])
     final = _fingerprint(
-        [transform, "export", assembly, spec.get("bgm"), settings.bgm_volume]
+        [transform, "export", assembly, spec.get("bgm"), settings.bgm_volume, settings.music_ducking]
     )
     stages.extend(
         [
@@ -800,7 +803,21 @@ class VideoProject:
                     timeout,
                 )
             elif spec["bgm"] and settings.bgm_volume:
-                mix = f"[1:a]volume={settings.bgm_volume}[music];[0:a][music]amix=inputs=2:duration=first:normalize=0[a]"
+                # Optional sidechain compression lowers music while speech is
+                # active. Narration drives the detector but is never compressed.
+                # Fixed bounds keep the FFmpeg filter graph non-user-injectable.
+                if settings.music_ducking:
+                    mix = (
+                        f"[1:a]volume={settings.bgm_volume}[music];"
+                        "[music][0:a]sidechaincompress="
+                        "threshold=0.025:ratio=8:attack=20:release=350[ducked];"
+                        "[0:a][ducked]amix=inputs=2:duration=first:normalize=0[a]"
+                    )
+                else:
+                    mix = (
+                        f"[1:a]volume={settings.bgm_volume}[music];"
+                        "[0:a][music]amix=inputs=2:duration=first:normalize=0[a]"
+                    )
                 self._run(
                     base
                     + [
