@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, request, send_file
 
-from . import creator_render_api as creator, db, local_musicgen as musicgen
+from . import creator_render_api as creator, db, local_musicgen as musicgen, creator_inference
 
 bp = Blueprint("creator_neural_music", __name__)
 log = logging.getLogger("clipper.creator_neural_music")
@@ -213,6 +213,6 @@ def generate(pid):
                 (pid, json.dumps({"model": musicgen.MODEL_ID, "prompt": options["prompt"],
                                   "duration": options["seconds"],
                                   "sample_seconds": options["sample_seconds"]})))
-    _executor.submit(_generate, pid, options)
+    _executor.submit(creator_inference.run_exclusive, _generate, pid, options)
     return jsonify(ok=True, status="generating_music", model=musicgen.MODEL_ID,
                    duration=options["seconds"]), 202
