@@ -217,5 +217,25 @@ def fill(pid):
                 "VALUES (?,'running','{}') ON CONFLICT(project_id) DO UPDATE SET "
                 "status='running',report_json='{}',updated_at=CURRENT_TIMESTAMP", (pid,))
         worker = _generate_all if payload.get("replace_existing", False) else _generate
-        _executor.submit(creator_inference.run_exclusive, worker, pid, payload["approve_model_download"])
+        try:
+            _executor.submit(creator_inference.run_exclusive, worker, pid,
+                             payload["approve_model_download"])
+        except RuntimeError:
+            # A shutting-down executor cannot run its queued worker. Restore
+            # readiness immediately instead of leaving the project busy.
+            with db.get_db() as conn:
+                ready = ("narration_ready" if conn.execute(
+                    "SELECT 1 FROM creator_stages WHERE project_id=? "
+                    "AND stage='narration' AND status='done'", (pid,)).fetchone()
+                    else "script_ready")
+                conn.execute(
+                    "UPDATE creator_projects SET status=?,error=?,"
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='generating_images'",
+                    (ready, "Local image worker unavailable; restart the application.", pid))
+                conn.execute(
+                    "UPDATE creator_image_jobs SET status='blocked',report_json=?,"
+                    "updated_at=CURRENT_TIMESTAMP WHERE project_id=?",
+                    (json.dumps({"errors": {"general":
+                        "Local image worker unavailable; restart the application."}}), pid))
+            return jsonify(error="Local image worker unavailable; restart the application."), 503
     return jsonify(status="generating_images", ok=True), 202
