@@ -140,6 +140,34 @@ class CreatorEditingTests(unittest.TestCase):
                          edit.footage_mapping(slots, 3, "shuffle"))
         self.assertEqual(set(edit.footage_mapping(slots, 3, "shuffle").values()),set(slots))
 
+    def test_manual_scene_footage_reuse_keeps_audio_slots(self):
+        endpoint=f"/api/creator/projects/{self.pid}/edit/scene-assignments"
+        self.assertEqual(self.client.get(endpoint).get_json()["assignments"], {})
+        db.execute("UPDATE creator_stages SET status='done' WHERE project_id=? "
+                   "AND stage IN ('narration','visuals','render')", (self.pid,))
+        response=self.client.put(endpoint, json={"assignments":{"scene_0":"hook",
+                                                                   "closing":"hook"}})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertTrue(response.get_json()["changed"])
+        self.assertEqual(self.client.get(endpoint).get_json()["assignments"],
+                         {"scene_0":"hook", "closing":"hook"})
+        stages={row["stage"]:row["status"] for row in db.query(
+            "SELECT stage,status FROM creator_stages WHERE project_id=?", (self.pid,))}
+        self.assertEqual(stages["render"], "pending")
+        self.assertEqual(stages["visuals"], "done")
+        self.assertEqual(stages["narration"], "done")
+        self.assertFalse(self.client.put(endpoint, json={
+            "assignments":{"scene_0":"hook","closing":"hook"}}).get_json()["changed"])
+        for invalid in (
+            {"assignments":{"scene_0":"scene_99"}},
+            {"assignments":{"unknown":"hook"}},
+            {"assignments":{"hook":"../../etc/passwd"}},
+            {"assignments":["hook"]},
+        ):
+            self.assertEqual(self.client.put(endpoint,json=invalid).status_code,400)
+        db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
+        self.assertEqual(self.client.put(endpoint, json={"assignments":{}}).status_code,409)
+
     def test_default_footage_processing_is_identity(self):
         source = Path(self.temp.name) / "source.mp4"
         source.write_bytes(b"original")
@@ -177,6 +205,12 @@ class CreatorEditingTests(unittest.TestCase):
         spec=render._manifest(self.pid,render._project(self.pid))
         self.assertEqual(spec["settings"]["narration_volume"], 1.5)
         self.assertEqual(spec["settings"]["bgm_volume"], 0.4)
+        manual=self.client.put(f"/api/creator/projects/{self.pid}/edit/scene-assignments",
+                               json={"assignments":{"scene_0":"hook"}})
+        self.assertEqual(manual.status_code,200, manual.get_json())
+        remapped=render._manifest(self.pid,render._project(self.pid))
+        self.assertTrue(remapped["scenes"][1]["footage"].endswith("clip_hook.mp4"))
+        self.assertTrue(remapped["scenes"][1]["audio"].endswith("part_01.wav"))
         self.assertFalse(spec["settings"]["music_ducking"])
         adjusted["music_ducking"] = True
         self.client.put(self.endpoint, json=adjusted)
