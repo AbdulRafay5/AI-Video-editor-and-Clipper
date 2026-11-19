@@ -14,6 +14,10 @@ from pathlib import Path
 
 MODEL = "zai-org/CogVideoX-2b"
 MAX_PROMPT = 750
+# Experimental low-memory configuration validated as a short local test on 6GB VRAM.
+DEFAULT_FRAMES = 17
+DEFAULT_STEPS = 20
+FPS = 8
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
@@ -26,7 +30,7 @@ def dependencies_ready():
                for name in ("torch", "diffusers", "transformers", "accelerate", "PIL", "imageio"))
 
 
-def prompt_for(slot, script):
+def prompt_for(slot, script, topic=""):
     scenes = script.get("scenes") or []
     if not scenes:
         raise VideoGenerationError("The saved script has no scenes.")
@@ -44,9 +48,13 @@ def prompt_for(slot, script):
     idea = str(idea).strip()
     if not 2 <= len(idea) <= 550:
         raise VideoGenerationError("A useful English visual idea is required.")
-    return ("Continuous cinematic motion shot, realistic moving subjects and "
-            "natural camera movement, consistent anatomy and lighting, no "
-            "subtitles, no logos. " + idea)[:MAX_PROMPT]
+    # Keep the creator's actual subject in every scene. Previously, only the
+    # visual_idea was sent and characters/subjects could disappear between cuts.
+    subject = str(topic).strip()[:240] if isinstance(topic, str) else ""
+    return ("Continuous cinematic motion shot, moving subjects, consistent "
+            "character identity and lighting, natural camera movement, no "
+            "subtitles, no logos. " + ("Subject: " + subject + ". " if subject else "")
+            + "Scene: " + idea)[:MAX_PROMPT]
 
 
 def probe_video(path):
@@ -111,7 +119,7 @@ class LocalCogVideoX:
             raise VideoGenerationError(msg) from exc
         return self
 
-    def generate(self, prompt, target, *, steps=30):
+    def generate(self, prompt, target, *, steps=DEFAULT_STEPS):
         if not isinstance(prompt, str) or not 5 <= len(prompt) <= MAX_PROMPT:
             raise VideoGenerationError("Video prompt must be 5–750 characters.")
         if type(steps) is not int or not 20 <= steps <= 50:
@@ -123,13 +131,16 @@ class LocalCogVideoX:
         target.parent.mkdir(parents=True, exist_ok=True)
         try:
             with self.torch.inference_mode():
-                # CogVideoX-2B generates 49 separate frames at 8fps, ~6 sec.
+                # 17 frames / 8 FPS is intentionally short to limit VRAM on
+                # RTX 3060 6GB; FFmpeg may repeat/fit shots to narration time.
                 frames = self.pipe(
                     prompt=prompt, num_videos_per_prompt=1,
-                    num_inference_steps=steps, num_frames=49,
+                    num_inference_steps=steps, num_frames=DEFAULT_FRAMES,
                     guidance_scale=6.0).frames[0]
-            export_to_video(frames, str(target), fps=8)
+            export_to_video(frames, str(target), fps=FPS)
             del frames
+            if self.torch.cuda.is_available():
+                self.torch.cuda.empty_cache()
             if not target.is_file() or target.stat().st_size < 1024:
                 raise VideoGenerationError("Text-to-video produced no usable MP4.")
             return probe_video(target)
