@@ -1113,7 +1113,7 @@
     effectsTitle.textContent="Per-scene footage effects";
     const effectsHint=document.createElement("p");
     effectsHint.className="muted";
-    effectsHint.textContent="Override speed or framing individually for each scene. Narration and subtitle timing remain unchanged.";
+    effectsHint.textContent="Override speed, framing and crop focal point for each scene. Crop anchors apply to Crop to fill. Audio and subtitle timing remain unchanged.";
     effectsPanel.append(effectsTitle,effectsHint);
     const effectsRows={};
     const effectsSlots=["hook",...script.scenes.map((_,i)=>"scene_"+i),"closing"];
@@ -1143,9 +1143,25 @@
         option.value=value;option.textContent=text;fitSelect.append(option);
       }
       fitLabel.append(fitSelect);
-      wrap.append(label,speedLabel,fitLabel);
+      const cropXLabel=document.createElement("label");
+      cropXLabel.textContent=" Horizontal crop focus ";
+      const cropXSelect=document.createElement("select");
+      for(const [value,name] of [["","Centre (default)"],["0","Left"],["0.5","Centre"],["1","Right"]]){
+        const option=document.createElement("option");
+        option.value=value;option.textContent=name;cropXSelect.append(option);
+      }
+      cropXLabel.append(cropXSelect);
+      const cropYLabel=document.createElement("label");
+      cropYLabel.textContent=" Vertical crop focus ";
+      const cropYSelect=document.createElement("select");
+      for(const [value,name] of [["","Centre (default)"],["0","Top"],["0.5","Centre"],["1","Bottom"]]){
+        const option=document.createElement("option");
+        option.value=value;option.textContent=name;cropYSelect.append(option);
+      }
+      cropYLabel.append(cropYSelect);
+      wrap.append(label,speedLabel,fitLabel,cropXLabel,cropYLabel);
       effectsPanel.append(wrap);
-      effectsRows[slot]={speedSelect,fitSelect};
+      effectsRows[slot]={speedSelect,fitSelect,cropXSelect,cropYSelect};
     }
     const effectsSave=document.createElement("button");
     effectsSave.type="button";effectsSave.className="secondary";
@@ -1160,6 +1176,8 @@
         for(const [slot,fields] of Object.entries(effectsRows)){
           fields.speedSelect.value=effects[slot]?.speed==null?"":String(effects[slot].speed);
           fields.fitSelect.value=effects[slot]?.fit||"";
+          fields.cropXSelect.value=effects[slot]?.crop_x==null?"":String(effects[slot].crop_x);
+          fields.cropYSelect.value=effects[slot]?.crop_y==null?"":String(effects[slot].crop_y);
         }
       }).catch(err=>{if(selected===project.id)effectsStatus.textContent=err.message;});
     effectsSave.onclick=async()=>{
@@ -1170,6 +1188,8 @@
           const override={};
           if(fields.speedSelect.value) override.speed=Number(fields.speedSelect.value);
           if(fields.fitSelect.value) override.fit=fields.fitSelect.value;
+          if(fields.cropXSelect.value!=="") override.crop_x=Number(fields.cropXSelect.value);
+          if(fields.cropYSelect.value!=="") override.crop_y=Number(fields.cropYSelect.value);
           if(Object.keys(override).length) effects[slot]=override;
         }
         await request("PUT","/api/creator/projects/"+project.id+"/edit/scene-effects",{effects});
