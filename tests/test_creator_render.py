@@ -185,6 +185,26 @@ class RenderBridgeTests(unittest.TestCase):
         self.assertEqual(self.client.post(
             f"/api/creator/projects/{self.pid}/render/cancel").status_code, 409)
 
+    def test_ducking_only_changes_final_export_fingerprint(self):
+        from clipper.mpt_compat.video_project import RenderSettings
+        self.assertFalse(RenderSettings.parse({}).music_ducking)
+        with self.assertRaises(ValueError):
+            RenderSettings.parse({"music_ducking": 1})
+        base = {"settings": {"music_ducking": False},
+                "toolchain": {"ffmpeg": "test", "ffprobe": "test"},
+                "bgm": {"sha256": "instrumental"},
+                "scenes": [{"id": "intro", "audio": {"sha256": "narration"},
+                            "footage": {"sha256": "clip"},
+                            "narration": "Hello", "duration": 2.0}]}
+        from copy import deepcopy
+        altered = deepcopy(base)
+        altered["settings"]["music_ducking"] = True
+        before = {stage.key: stage.fingerprint for stage in stage_graph(base)}
+        after = {stage.key: stage.fingerprint for stage in stage_graph(altered)}
+        for key in ("intro:audio", "intro:timing", "intro:scene", "assembly"):
+            self.assertEqual(before[key], after[key])
+        self.assertNotEqual(before["export"], after["export"])
+
     def test_upstream_revision_graph_reuses_unaffected_scenes(self):
         base = {"settings": {}, "toolchain": {"ffmpeg": "a", "ffprobe": "b"},
                 "bgm": None, "scenes": [
