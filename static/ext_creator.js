@@ -903,6 +903,12 @@
        ["1.25","1.25×"],["1.5","1.5×"],["2","2× fast"]]);
     const footageOrder = selectEditing("Footage assignment",
       [["script","Scene order"],["reverse","Reverse footage"],["shuffle","Shuffle footage (repeatable)"]]);
+    const narrationLevel=selectEditing("Narration volume",[
+      ["0","Mute"],["0.5","50%"],["0.75","75%"],["1","100% (default)"],
+      ["1.25","125%"],["1.5","150%"],["2","200%"]]);
+    const musicLevel=selectEditing("Background music volume",[
+      ["0","Mute"],["0.05","5%"],["0.1","10%"],["0.15","15% (default)"],
+      ["0.25","25%"],["0.4","40%"],["0.6","60%"],["1","100%"]]);
     const saveEdit = document.createElement("button");
     saveEdit.type = "button";
     saveEdit.className = "secondary";
@@ -919,6 +925,8 @@
         fitMode.value = data.options.fit;
         footageSpeed.value = String(data.options.speed);
         footageOrder.value = data.options.order;
+        narrationLevel.value = String(data.options.narration_volume ?? 1);
+        musicLevel.value = String(data.options.bgm_volume ?? 0.15);
       })
       .catch(err => {if(selected === project.id) editStatus.textContent=err.message;});
     saveEdit.onclick=async()=>{
@@ -926,9 +934,11 @@
       try{
         await request("PUT","/api/creator/projects/" + project.id + "/edit/options",{
           format:outputFormat.value,fit:fitMode.value,
-          speed:Number(footageSpeed.value),order:footageOrder.value
+          speed:Number(footageSpeed.value),order:footageOrder.value,
+          narration_volume:Number(narrationLevel.value),
+          bgm_volume:Number(musicLevel.value)
         });
-        say("Editing settings saved. The next render uses the selected format and footage controls.");
+        say("Editing settings saved. The next render uses the selected visual and audio mix controls.");
         openProject(project.id);
       }catch(err){say(err.message);saveEdit.disabled=false;}
     };
