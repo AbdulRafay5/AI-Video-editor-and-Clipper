@@ -218,13 +218,39 @@ def generate_narration(pid):
         if not project["script_json"]:
             return jsonify(error="Create or save a script before generating narration."), 409
         script = json.loads(project["script_json"])
+        previous_status = project["status"]
+        previous_stages = {
+            row["stage"]: dict(row) for row in conn.execute(
+                "SELECT stage, status, artifact_json, error FROM creator_stages "
+                "WHERE project_id=? AND stage IN ('narration','captions','render')",
+                (pid,)).fetchall()
+        }
         conn.execute("UPDATE creator_projects SET status='generating_narration', error=NULL, "
                      "updated_at=CURRENT_TIMESTAMP WHERE id=?", (pid,))
         conn.execute("UPDATE creator_stages SET status='running', error=NULL, "
                      "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='narration'", (pid,))
         conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
                      "WHERE project_id=? AND stage IN ('captions','render')", (pid,))
-    _executor.submit(_run, pid, script, engine)
+    try:
+        _executor.submit(_run, pid, script, engine)
+    except RuntimeError:
+        message = "Narration worker unavailable; restart the application."
+        # Nothing was queued, so roll back the stage invalidations too:
+        # the previous voice, captions and finished render remain usable.
+        with db.get_db() as conn:
+            conn.execute(
+                "UPDATE creator_projects SET status=?,error=?,"
+                "updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status='generating_narration'",
+                (previous_status, message, pid))
+            for stage, prior in previous_stages.items():
+                conn.execute(
+                    "UPDATE creator_stages SET status=?, artifact_json=?, "
+                    "error=?,updated_at=CURRENT_TIMESTAMP "
+                    "WHERE project_id=? AND stage=?",
+                    (prior["status"], prior["artifact_json"],
+                     prior["error"], pid, stage))
+        return jsonify(error=message), 503
     return jsonify(ok=True, status="generating_narration"), 202
 
 
