@@ -283,6 +283,22 @@ class CreatorEditingTests(unittest.TestCase):
                                 "closing":"Outro"}),self.pid))
         self.assertEqual(self.client.get(endpoint).get_json()["effects"],{})
 
+    def test_trim_rejects_ranges_outside_actual_source(self):
+        source = Path(self.temp.name) / "fixture.mp4"
+        source.write_bytes(b"fixture bytes")
+        settings = {**edit.DEFAULTS, "trim_start": 4.0, "trim_end": 5.0}
+        with patch("clipper.video.probe", return_value={"duration": 3.0}):
+            with self.assertRaisesRegex(edit.EditError, "Clip in"):
+                edit.prepare_footage(self.pid, source, "scene_0", settings)
+            with self.assertRaisesRegex(edit.EditError, "Clip out"):
+                edit.prepare_footage(
+                    self.pid, source, "scene_0",
+                    {**settings, "trim_start": 1.0, "trim_end": 4.0})
+        with patch("clipper.video.probe", side_effect=render.video.VideoError("bad input")):
+            with self.assertRaisesRegex(edit.EditError, "source footage duration"):
+                edit.prepare_footage(self.pid, source, "scene_0", settings)
+        self.assertTrue(source.exists())
+
     def test_default_footage_processing_is_identity(self):
         source = Path(self.temp.name) / "source.mp4"
         source.write_bytes(b"original")
