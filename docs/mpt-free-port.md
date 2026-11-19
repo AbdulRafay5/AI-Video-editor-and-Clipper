@@ -261,6 +261,21 @@ audio and duration. A manual source needs its footage saved before rendering.
 Stale scene IDs are ignored after a script changes; review mappings after
 adding or removing scenes.
 
+## Narration voice previews
+
+Creator Studio now exposes **Preview selected voice** alongside the local
+Kokoro/Piper/Windows and free online Edge TTS voice choices. The preview
+synthesises one short, predefined phrase using the selected ready backend
+and returns a disposable WAV file for immediate browser playback.
+
+Previewing does not change the saved script, narration artifacts, subtitle
+timing, existing exports or project status. Preview requests do not accept
+arbitrary dialogue or filesystem paths, and concurrent voice previews are
+rejected rather than overloading a small local machine. First-run model setup
+and backend availability are unchanged. This is a sample of the selected
+voice, not a guarantee of quality for a long script. Windows live validation
+is still pending.
+
 ## Voice and soundtrack mix controls
 
 Creator Studio's **Advanced video editing** panel now exposes separate saved
