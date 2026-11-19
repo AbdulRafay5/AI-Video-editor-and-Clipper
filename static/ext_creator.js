@@ -256,9 +256,52 @@
       }
     }
     previewVoiceButton.onclick=previewCurrentVoice;
+    const uploadHeading=document.createElement("h5");
+    uploadHeading.textContent="Or upload your own recorded voice";
+    const uploadHint=document.createElement("p");
+    uploadHint.className="muted";
+    uploadHint.textContent="Choose one WAV recording for the hook, each scene and the closing. Audio is processed locally; uploading replaces the current narration and resets captions/export.";
+    const recordingInputs=[];
+    const recordingsPanel=document.createElement("div");
+    if(project.script){
+      const segments=[{name:"Hook"},...project.script.scenes.map((_,i)=>({name:"Scene "+(i+1)})),{name:"Closing"}];
+      for(const [i,segment] of segments.entries()){
+        const label=document.createElement("label");
+        label.textContent=segment.name+" (WAV) ";
+        const input=document.createElement("input");
+        input.type="file";input.accept=".wav,audio/wav";
+        label.append(input);recordingsPanel.append(label);
+        recordingInputs.push(input);
+      }
+    }
+    const uploadButton=document.createElement("button");
+    uploadButton.type="button";
+    uploadButton.className="secondary";
+    uploadButton.textContent="Use recorded narration";
+    uploadButton.disabled=!recordingInputs.length||
+      ["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
+    uploadButton.onclick=async()=>{
+      if(recordingInputs.some(input=>!input.files?.length)){
+        say("Choose one WAV recording for every script part.");return;
+      }
+      if(project.stages.narration?.status==="done"&&!confirm("Replace your current narration with these recordings?"))return;
+      const data=new FormData();
+      recordingInputs.forEach((input,i)=>data.append("part_"+i,input.files[0]));
+      uploadButton.disabled=true;
+      try{
+        const response=await fetch("/api/creator/projects/"+project.id+"/narration/upload",{
+          method:"POST",body:data
+        });
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok)throw Error(result.error||"Recorded narration upload failed.");
+        say("Recorded narration imported.");
+        openProject(project.id);
+      }catch(err){say(err.message);uploadButton.disabled=false;}
+    };
     const audioList = document.createElement("div");
     voiceBox.append(voiceTitle, voiceInfo, engineLabel, voiceLabel, previewVoiceButton,
-      previewVoiceAudio,previewVoiceNote,paceLabel,voiceButton,audioList);
+      previewVoiceAudio,previewVoiceNote,paceLabel,voiceButton,
+      uploadHeading,uploadHint,recordingsPanel,uploadButton,audioList);
     container.append(voiceBox);
     request("GET", "/api/creator/narration/capabilities").then(data => {
       if(selected !== project.id) return;
