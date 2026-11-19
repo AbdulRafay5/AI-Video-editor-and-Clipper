@@ -209,6 +209,28 @@ class RenderBridgeTests(unittest.TestCase):
         self.assertIsNone(missing["download_url"])
         self.assertEqual(self.client.get(endpoint + "/file").status_code, 404)
 
+    def test_legacy_export_requires_matching_renderer_revision(self):
+        revision = "a" * 32
+        newer_revision = "b" * 32
+        folder = render._root(self.pid) / "mpt_render" / "artifacts" / "fixture"
+        folder.mkdir(parents=True, exist_ok=True)
+        output = folder / "out.mp4"
+        output.write_bytes(b"valid-sized-fixture" * 120)
+        original = {"revision_id": revision, "final_name": None}
+        with patch.object(render, "_engine") as engine:
+            engine.return_value.metadata.return_value = {
+                "last_successful_export": {"revision_id": newer_revision,
+                                           "path": str(output)}}
+            with self.assertRaises(render.ProjectError):
+                render._finished_export(self.pid, original)
+            engine.return_value.metadata.return_value[
+                "last_successful_export"]["revision_id"] = revision
+            self.assertEqual(render._finished_export(self.pid, original), output)
+            engine.return_value.metadata.return_value[
+                "last_successful_export"] = None
+            with self.assertRaises(render.ProjectError):
+                render._finished_export(self.pid, original)
+
     def test_invalid_artifact_cannot_escape_export_folder(self):
         db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
                    "WHERE project_id=? AND stage='render'",
