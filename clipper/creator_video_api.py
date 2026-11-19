@@ -149,5 +149,23 @@ def generate(pid):
                 "VALUES (?,'running','{}') ON CONFLICT(project_id) DO UPDATE SET "
                 "status='running',report_json='{}',updated_at=CURRENT_TIMESTAMP",
                 (pid,))
-        _executor.submit(creator_inference.run_exclusive, _run, pid, body["approve_model_download"])
+        try:
+            _executor.submit(creator_inference.run_exclusive, _run, pid,
+                             body["approve_model_download"])
+        except RuntimeError:
+            with db.get_db() as conn:
+                ready = ("narration_ready" if conn.execute(
+                    "SELECT 1 FROM creator_stages WHERE project_id=? "
+                    "AND stage='narration' AND status='done'", (pid,)).fetchone()
+                    else "script_ready")
+                conn.execute(
+                    "UPDATE creator_projects SET status=?,error=?,"
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='generating_video'",
+                    (ready, "Local video worker unavailable; restart the application.", pid))
+                conn.execute(
+                    "UPDATE creator_video_jobs SET status='blocked',report_json=?,"
+                    "updated_at=CURRENT_TIMESTAMP WHERE project_id=?",
+                    (json.dumps({"errors": {"general":
+                        "Local video worker unavailable; restart the application."}}), pid))
+            return jsonify(error="Local video worker unavailable; restart the application."), 503
     return jsonify(ok=True, status="generating_video"), 202
