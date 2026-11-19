@@ -268,6 +268,7 @@ def _manifest(pid, project):
     # Manual choices override the global reverse/shuffle strategy per slot.
     # A source is referenced by an existing slot, never a caller path.
     mapped.update(editor.scene_assignments(pid, slots))
+    effects = editor.scene_effects(pid, slots)
     width, height = editor.FORMATS[edit["format"]]
     scenes = []
     for index, slot in enumerate(slots):
@@ -282,7 +283,8 @@ def _manifest(pid, project):
         scenes.append({
             "id": slot,
             "footage": str(editor.prepare_footage(
-                pid, _file_for_slot(pid, clips[mapped[slot]]), slot, edit)),
+                pid, _file_for_slot(pid, clips[mapped[slot]]), slot,
+                {**edit, **effects.get(slot, {})})),
             "audio": str(audio),
             "narration": segment["text"],
             "duration": float(segment["duration"]),
