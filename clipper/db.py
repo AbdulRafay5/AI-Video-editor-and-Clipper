@@ -138,6 +138,11 @@ CREATE TABLE IF NOT EXISTS creator_music_jobs (
     report_json TEXT,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS creator_scene_assignments (
+    project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
+    mapping_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS creator_edit_settings (
     project_id INTEGER PRIMARY KEY REFERENCES creator_projects(id) ON DELETE CASCADE,
     options_json TEXT NOT NULL,
