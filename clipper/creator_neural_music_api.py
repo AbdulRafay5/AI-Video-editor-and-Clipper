@@ -213,6 +213,21 @@ def generate(pid):
                 (pid, json.dumps({"model": musicgen.MODEL_ID, "prompt": options["prompt"],
                                   "duration": options["seconds"],
                                   "sample_seconds": options["sample_seconds"]})))
-    _executor.submit(creator_inference.run_exclusive, _generate, pid, options)
+    try:
+        _executor.submit(creator_inference.run_exclusive, _generate, pid, options)
+    except RuntimeError:
+        with creator._upload_lock:
+            with db.get_db() as conn:
+                conn.execute(
+                    "UPDATE creator_projects SET status=?,error=?,"
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='generating_music'",
+                    (_ready_state(conn, pid),
+                     "Local music worker unavailable; restart the application.", pid))
+                conn.execute(
+                    "UPDATE creator_music_jobs SET status='failed',report_json=?,"
+                    "updated_at=CURRENT_TIMESTAMP WHERE project_id=?",
+                    (json.dumps({"error":
+                        "Local music worker unavailable; restart the application."}), pid))
+        return jsonify(error="Local music worker unavailable; restart the application."), 503
     return jsonify(ok=True, status="generating_music", model=musicgen.MODEL_ID,
                    duration=options["seconds"]), 202
