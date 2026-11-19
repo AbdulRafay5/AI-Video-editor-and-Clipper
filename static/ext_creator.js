@@ -909,6 +909,12 @@
     const musicLevel=selectEditing("Background music volume",[
       ["0","Mute"],["0.05","5%"],["0.1","10%"],["0.15","15% (default)"],
       ["0.25","25%"],["0.4","40%"],["0.6","60%"],["1","100%"]]);
+    const duckingLabel=document.createElement("label");
+    const musicDucking=document.createElement("input");
+    musicDucking.type="checkbox";
+    duckingLabel.append(musicDucking,document.createTextNode(
+      " Automatically lower music during narration (audio ducking)"));
+    editPanel.append(duckingLabel);
     const saveEdit = document.createElement("button");
     saveEdit.type = "button";
     saveEdit.className = "secondary";
@@ -927,6 +933,7 @@
         footageOrder.value = data.options.order;
         narrationLevel.value = String(data.options.narration_volume ?? 1);
         musicLevel.value = String(data.options.bgm_volume ?? 0.15);
+        musicDucking.checked = data.options.music_ducking === true;
       })
       .catch(err => {if(selected === project.id) editStatus.textContent=err.message;});
     saveEdit.onclick=async()=>{
@@ -936,7 +943,8 @@
           format:outputFormat.value,fit:fitMode.value,
           speed:Number(footageSpeed.value),order:footageOrder.value,
           narration_volume:Number(narrationLevel.value),
-          bgm_volume:Number(musicLevel.value)
+          bgm_volume:Number(musicLevel.value),
+          music_ducking:musicDucking.checked
         });
         say("Editing settings saved. The next render uses the selected visual and audio mix controls.");
         openProject(project.id);
