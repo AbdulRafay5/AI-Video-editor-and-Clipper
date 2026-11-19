@@ -290,7 +290,8 @@ def _manifest(pid, project):
         "bgm": str(music["file"]) if music else None,
         "settings": {"width": width, "height": height, "fps": 30,
                      "narration_volume": edit["narration_volume"],
-                     "bgm_volume": edit["bgm_volume"]},
+                     "bgm_volume": edit["bgm_volume"],
+                     "music_ducking": edit["music_ducking"]},
     }
 
 
