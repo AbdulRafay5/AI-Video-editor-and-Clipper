@@ -265,6 +265,9 @@ def _manifest(pid, project):
     from . import creator_edit_api as editor
     edit = editor.options(pid)
     mapped = editor.footage_mapping(slots, pid, edit["order"])
+    # Manual choices override the global reverse/shuffle strategy per slot.
+    # A source is referenced by an existing slot, never a caller path.
+    mapped.update(editor.scene_assignments(pid, slots))
     width, height = editor.FORMATS[edit["format"]]
     scenes = []
     for index, slot in enumerate(slots):
