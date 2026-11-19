@@ -229,6 +229,33 @@ class CreatorEditingTests(unittest.TestCase):
         self.assertEqual(statuses["visuals"], "done")
         self.assertFalse(self.client.put(endpoint, json={"effects": chosen}).get_json()["changed"])
 
+    def test_scene_trim_controls_reject_invalid_ranges_and_invalidate_only_render(self):
+        endpoint = f"/api/creator/projects/{self.pid}/edit/scene-effects"
+        for bad in (
+            {"hook": {"trim_start": -0.1}},
+            {"hook": {"trim_end": 0}},
+            {"hook": {"trim_start": 4, "trim_end": 4}},
+            {"hook": {"trim_start": 5, "trim_end": 2}},
+            {"hook": {"trim_start": True}},
+            {"hook": {"trim_end": "3"}},
+            {"hook": {"trim_end": 3601}},
+        ):
+            response = self.client.put(endpoint, json={"effects": bad})
+            self.assertEqual(response.status_code, 400, (bad, response.get_json()))
+        db.execute("UPDATE creator_stages SET status='done' WHERE project_id=? "
+                   "AND stage IN ('narration','visuals','render')", (self.pid,))
+        effects = {"hook": {"trim_start": 1.0, "trim_end": 3.0},
+                   "scene_0": {"trim_end": 2.5, "speed": 1.5}}
+        result = self.client.put(endpoint, json={"effects": effects})
+        self.assertEqual(result.status_code, 200, result.get_json())
+        self.assertEqual(self.client.get(endpoint).get_json()["effects"], effects)
+        self.assertFalse(self.client.put(endpoint, json={"effects": effects}).get_json()["changed"])
+        states = {r["stage"]: r["status"] for r in db.query(
+            "SELECT stage,status FROM creator_stages WHERE project_id=?", (self.pid,))}
+        self.assertEqual(states["render"], "pending")
+        self.assertEqual(states["narration"], "done")
+        self.assertEqual(states["visuals"], "done")
+
     def test_scene_effects_ignore_stale_slots(self):
         endpoint=f"/api/creator/projects/{self.pid}/edit/scene-effects"
         self.client.put(endpoint,json={"effects":{"scene_0":{"speed":2.0}}})
@@ -324,6 +351,30 @@ class ActualFootagePreprocessingTests(CreatorEditingTests):
                 capture_output=True, check=True, timeout=20).stdout
         self.assertNotEqual(first_frame(left), first_frame(right))
         self.assertTrue(source.exists())
+
+    def test_real_ffmpeg_trims_source_without_modifying_it(self):
+        root = Path(self.temp.name)
+        source = root / "long.mp4"
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10:duration=4",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)],
+            check=True, timeout=35)
+        settings = {"format": "landscape", "fit": "cover",
+                    "speed": 1.0, "order": "script",
+                    "trim_start": 1.0, "trim_end": 2.5}
+        trimmed = edit.prepare_footage(self.pid, source, "scene_0", settings)
+        self.assertNotEqual(source, trimmed)
+        self.assertTrue(source.exists())
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(trimmed)],
+            capture_output=True, text=True, check=True, timeout=20)
+        self.assertAlmostEqual(float(probe.stdout.strip()), 1.5, delta=0.2)
+        self.assertEqual(edit.prepare_footage(self.pid, source, "scene_0", settings), trimmed)
+        different = edit.prepare_footage(
+            self.pid, source, "scene_0", {**settings, "trim_start": 0.5})
+        self.assertNotEqual(different, trimmed)
 
     def test_real_ffmpeg_contains_full_frame_and_changes_speed(self):
         folder=Path(self.temp.name)
