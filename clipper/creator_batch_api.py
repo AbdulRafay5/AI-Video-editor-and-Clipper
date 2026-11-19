@@ -46,6 +46,22 @@ def _set_item(item_id, status, error=None):
         (status, error, item_id))
 
 
+def _claim_item(batch_id, item_id):
+    """Atomically claim a queued item against pause requests in this process."""
+    with _lock:
+        with db.get_db() as conn:
+            batch = conn.execute(
+                "SELECT status FROM creator_batches WHERE id=?", (batch_id,)).fetchone()
+            if not batch or batch["status"] != "running":
+                return False
+            claimed = conn.execute(
+                "UPDATE creator_batch_items SET status='running',error=NULL,"
+                "updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND batch_id=? AND status='queued'",
+                (item_id, batch_id))
+            return claimed.rowcount == 1
+
+
 def _run(batch_id, app):
     # Reuse the active app: reimporting app during python app.py execution
     # would initialise a second app and trigger database restart recovery.
@@ -60,10 +76,8 @@ def _run(batch_id, app):
                 "WHERE batch_id=? AND status='queued' ORDER BY id", (batch_id,))
             for item in items:
                 # Leave prior completed videos unchanged, and only process queued items.
-                bid = db.query_one("SELECT status FROM creator_batches WHERE id=?", (batch_id,))
-                if not bid or bid["status"] != "running":
+                if not _claim_item(batch_id, item["id"]):
                     return
-                _set_item(item["id"], "running")
                 pid = item["project_id"]
                 try:
                     response = client.post(
