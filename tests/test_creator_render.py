@@ -226,6 +226,23 @@ class RenderBridgeTests(unittest.TestCase):
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                      "FFmpeg is unavailable on test runner")
 class UpstreamRenderSmokeTests(unittest.TestCase):
+    def test_ffmpeg_music_ducking_filter_accepts_speech_sidechain(self):
+        """Run the same FFmpeg audio filter used in production without models."""
+        command = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+            "-f", "lavfi", "-i", "sine=frequency=120:duration=1",
+            "-filter_complex",
+            "[1:a]volume=0.15[music];"
+            "[music][0:a]sidechaincompress="
+            "threshold=0.025:ratio=8:attack=20:release=350[ducked];"
+            "[0:a][ducked]amix=inputs=2:duration=first:normalize=0[a]",
+            "-map", "[a]", "-f", "null", "-",
+        ]
+        completed = subprocess.run(command, capture_output=True,
+                                   text=True, timeout=30)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_real_one_scene_video_export_and_cache_reuse(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
