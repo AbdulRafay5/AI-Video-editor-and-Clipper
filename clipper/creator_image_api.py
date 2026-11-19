@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, request
 
-from . import creator_render_api as creator, db, local_imagegen as imagegen
+from . import creator_render_api as creator, db, local_imagegen as imagegen, creator_inference
 
 bp = Blueprint("creator_images", __name__)
 log = logging.getLogger("clipper.creator_images")
@@ -217,5 +217,5 @@ def fill(pid):
                 "VALUES (?,'running','{}') ON CONFLICT(project_id) DO UPDATE SET "
                 "status='running',report_json='{}',updated_at=CURRENT_TIMESTAMP", (pid,))
         worker = _generate_all if payload.get("replace_existing", False) else _generate
-        _executor.submit(worker, pid, payload["approve_model_download"])
+        _executor.submit(creator_inference.run_exclusive, worker, pid, payload["approve_model_download"])
     return jsonify(status="generating_images", ok=True), 202
