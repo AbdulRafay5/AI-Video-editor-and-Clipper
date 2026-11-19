@@ -230,6 +230,20 @@ class NeuralApiTests(unittest.TestCase):
         self.assertTrue(old_path.is_file())
         self.assertNotEqual(creator._project(self.pid)["status"], "generating_music")
 
+    def test_dependency_exception_is_explained_in_music_job_status(self):
+        db.execute("INSERT INTO creator_music_jobs(project_id,status) VALUES (?,'running')",
+                   (self.pid,))
+        db.execute("UPDATE creator_projects SET status='generating_music' WHERE id=?",
+                   (self.pid,))
+        with patch.object(musicgen, "generate",
+                          side_effect=RuntimeError("CUDA out of memory")):
+            neural._generate(self.pid, {"prompt": "Soft piano", "seconds": 6,
+                                        "mood": "calm", "allow_download": False})
+        response = self.client.get(self.prefix).get_json()
+        self.assertEqual(response["status"], "failed")
+        self.assertIn("CUDA out of memory", response["report"]["error"])
+        self.assertNotEqual(creator._project(self.pid)["status"], "generating_music")
+
     def test_only_one_neural_generation_at_a_time(self):
         db.execute("UPDATE creator_projects SET status='generating_music' WHERE id=?",
                    (self.pid,))
