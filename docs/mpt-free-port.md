@@ -261,6 +261,23 @@ audio and duration. A manual source needs its footage saved before rendering.
 Stale scene IDs are ignored after a script changes; review mappings after
 adding or removing scenes.
 
+## Adjustable narration pacing
+
+Creator Studio supports **relaxed 0.8×**, **normal 1.0×**, and **energetic 1.2×**
+speaking rates for configured Kokoro and Edge TTS voices. These use the voice
+engine's native speed/rate controls, rather than post-processing an existing
+recording. The same selected rate is used for the disposable voice preview and
+the full generation run. Measured output WAV durations remain the source of
+scene offsets and caption alignment; Edge word boundaries are collected from
+the paced speech stream.
+
+Piper and Windows SAPI continue at their original default speaking speed;
+non-default pace for those engines is rejected rather than silently ignored.
+Existing projects and automation calls without a pace continue at **1.0×**.
+Changing speaking pace requires regenerating narration and its derived captions
+and export. It cannot be applied retroactively to a previously generated WAV.
+Real provider synthesis and Windows hardware acceptance testing remain pending.
+
 ## Narration voice previews
 
 Creator Studio now exposes **Preview selected voice** alongside the local
