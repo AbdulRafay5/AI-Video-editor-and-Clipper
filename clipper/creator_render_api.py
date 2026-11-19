@@ -289,7 +289,8 @@ def _manifest(pid, project):
         "project_id": f"creator_{pid}", "scenes": scenes,
         "bgm": str(music["file"]) if music else None,
         "settings": {"width": width, "height": height, "fps": 30,
-                     "narration_volume": 1.0, "bgm_volume": 0.15},
+                     "narration_volume": edit["narration_volume"],
+                     "bgm_volume": edit["bgm_volume"]},
     }
 
 
