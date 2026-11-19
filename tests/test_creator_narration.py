@@ -167,6 +167,47 @@ class NarrationTests(unittest.TestCase):
             finally:
                 narration._preview_lock.release()
 
+    def test_narration_queue_shutdown_preserves_existing_stages(self):
+        import json
+        self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
+        saved = json.dumps({"run_id": "a" * 32, "segments": []})
+        db.execute("UPDATE creator_projects SET status='narration_ready' WHERE id=?",
+                   (self.pid,))
+        for stage in ("narration", "captions", "render"):
+            db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                       "WHERE project_id=? AND stage=?", (saved, self.pid, stage))
+        with patch.object(local_narration, "select_backend", return_value={
+                 "name": "test", "voice": "test", "ready": True}), \
+             patch.object(narration._executor, "submit",
+                          side_effect=RuntimeError("executor is shutting down")):
+            response = self.client.post(
+                f"/api/creator/projects/{self.pid}/narration/generate")
+        self.assertEqual(response.status_code, 503)
+        project = self.client.get(
+            f"/api/creator/projects/{self.pid}").get_json()["project"]
+        self.assertEqual(project["status"], "narration_ready")
+        for stage in ("narration", "captions", "render"):
+            state = db.query_one(
+                "SELECT status,artifact_json FROM creator_stages "
+                "WHERE project_id=? AND stage=?", (self.pid, stage))
+            self.assertEqual(state["status"], "done")
+            self.assertEqual(state["artifact_json"], saved)
+
+    def test_narration_queue_shutdown_preserves_pending_stages(self):
+        self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
+        with patch.object(local_narration, "select_backend", return_value={
+                 "name": "test", "voice": "test", "ready": True}), \
+             patch.object(narration._executor, "submit",
+                          side_effect=RuntimeError("executor shut down")):
+            response = self.client.post(
+                f"/api/creator/projects/{self.pid}/narration/generate")
+        self.assertEqual(response.status_code, 503)
+        project = self.client.get(
+            f"/api/creator/projects/{self.pid}").get_json()["project"]
+        self.assertEqual(project["status"], "script_ready")
+        for stage in ("narration", "captions", "render"):
+            self.assertEqual(project["stages"][stage]["status"], "pending")
+
     def test_narration_restart_recovery(self):
         self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
         db.execute("UPDATE creator_projects SET status='generating_narration' WHERE id=?", (self.pid,))
