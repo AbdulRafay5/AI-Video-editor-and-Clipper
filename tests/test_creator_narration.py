@@ -167,6 +167,19 @@ class NarrationTests(unittest.TestCase):
             finally:
                 narration._preview_lock.release()
 
+    def test_voice_changes_blocked_during_neural_video_generation(self):
+        self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
+        db.execute("UPDATE creator_projects SET status='generating_video' WHERE id=?",
+                   (self.pid,))
+        with patch.object(local_narration, "select_backend", return_value={
+                 "name": "test", "voice": "test", "ready": True}):
+            response = self.client.post(
+                f"/api/creator/projects/{self.pid}/narration/generate")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.client.get(
+            f"/api/creator/projects/{self.pid}/narration").get_json()
+            ["narration"]["status"], "pending")
+
     def test_narration_queue_shutdown_preserves_existing_stages(self):
         import json
         self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
