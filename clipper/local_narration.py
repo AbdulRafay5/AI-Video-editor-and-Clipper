@@ -65,6 +65,15 @@ def select_backend(name=None, voice=None):
     return {**selected, "voice": value}
 
 
+def with_pace(selected, pace=1.0):
+    """Validate a bounded speed multiplier for engines with native support."""
+    if type(pace) not in (int, float) or pace not in (0.8, 1.0, 1.2):
+        raise NarrationError("Narration pace must be 0.8x, 1.0x or 1.2x.")
+    if selected["name"] not in ("kokoro", "edge") and pace != 1.0:
+        raise NarrationError("Adjustable pace is available for Kokoro and Edge voices.")
+    return {**selected, "pace": float(pace)}
+
+
 def wav_duration(path: Path) -> float:
     try:
         with wave.open(str(path), "rb") as sound:
