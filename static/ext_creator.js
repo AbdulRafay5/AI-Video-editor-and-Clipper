@@ -1273,6 +1273,21 @@
             link.textContent = "Review original";
             wrap.append(link);
           }
+          const reject=document.createElement("button");
+          reject.type="button";
+          reject.className="secondary";
+          reject.textContent="Reject this stock clip";
+          reject.disabled=["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
+          reject.onclick=async()=>{
+            if(!confirm("Reject this stock clip and leave the scene empty for another selection?"))return;
+            reject.disabled=true;
+            try{
+              await request("POST","/api/creator/projects/"+project.id+"/stock/reject/"+slot,{});
+              say("Stock clip rejected. You can request another shot or upload your own.");
+              await openProject(project.id);
+            }catch(err){say(err.message);reject.disabled=false;}
+          };
+          wrap.append(reject);
         }
         visualList.append(wrap);
       }
