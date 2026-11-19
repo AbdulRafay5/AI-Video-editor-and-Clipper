@@ -467,6 +467,7 @@ def render_status(pid):
             pass
     return jsonify(status=state, error=row["error"] if row else None,
                    revision_id=revision, completed_stages=len(stages),
+                   verification=artifact.get("verification") if available else None,
                    ready=available, download_url=(
                        f"/api/creator/projects/{pid}/render/file" if available else None),
                    preview_url=(
