@@ -71,6 +71,20 @@ loggers and multi-provider request code. The existing clipper search is reused
 without changing its routes or API responses. The 946-line revision renderer
 remains the direct upstream code copy.
 
+## Review and reject stock B-roll
+
+Each auto-sourced footage slot now offers **Reject this stock clip**.
+Rejection clears only that slot's active clip assignment, preserves the
+downloaded file for immutable older revisions, invalidates the current render,
+and records the provider/asset ID in the visual-stage artifact. Future stock
+batches skip rejected assets, allowing an alternate result instead of repeating
+the same unsuitable shot. Manual footage is never eligible for the stock
+rejection action, and the action is blocked during active generation.
+
+This is a user-driven review control, not computer-vision recognition.
+Users may upload their own replacement or explicitly authorize another
+free-provider stock search. Provider availability is not guaranteed.
+
 ## Smarter free B-roll selection (metadata, not image recognition)
 
 Creator Studio now scores candidate clips deterministically by portrait aspect,
