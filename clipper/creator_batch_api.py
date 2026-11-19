@@ -19,6 +19,7 @@ _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="creator-batch"
 _lock = threading.RLock()
 TERMINAL = {"done", "blocked", "interrupted"}
 MAX_TOPICS = 8
+MAX_ITEM_SECONDS = 24 * 3600
 
 
 def _details(batch_id):
@@ -62,6 +63,30 @@ def _claim_item(batch_id, item_id):
             return claimed.rowcount == 1
 
 
+def _wait_for_auto(batch_id, pid):
+    """Never dispatch another project while an earlier worker is still alive.
+
+    Hitting the coordinator deadline pauses the batch; it does not cancel the
+    independent automation worker or release the active item prematurely.
+    A paused batch can be resumed after the current worker finishes.
+    """
+    deadline = time.monotonic() + MAX_ITEM_SECONDS
+    timed_out = False
+    while True:
+        state = auto.status(pid)
+        if state["status"] in TERMINAL:
+            return state, timed_out
+        if not timed_out and time.monotonic() >= deadline:
+            timed_out = True
+            with _lock:
+                db.execute(
+                    "UPDATE creator_batches SET status='paused',updated_at=CURRENT_TIMESTAMP "
+                    "WHERE id=? AND status='running'", (batch_id,))
+            log.error("Batch %s exceeded the item deadline for project %s; "
+                      "paused without starting another video", batch_id, pid)
+        time.sleep(1)
+
+
 def _run(batch_id, app):
     # Reuse the active app: reimporting app during python app.py execution
     # would initialise a second app and trigger database restart recovery.
@@ -85,18 +110,13 @@ def _run(batch_id, app):
                     if response.status_code != 202:
                         body = response.get_json(silent=True) or {}
                         raise ValueError(str(body.get("error") or "Cannot start project.")[:300])
-                    # Neural generation may take hours with CPU offloading.
-                    deadline = time.monotonic() + 24 * 3600
-                    while time.monotonic() < deadline:
-                        state = auto.status(pid)
-                        if state["status"] in TERMINAL:
-                            break
-                        time.sleep(1)
-                    else:
-                        raise ValueError("Project exceeded the batch processing time limit.")
+                    state, exceeded = _wait_for_auto(batch_id, pid)
                     if state["status"] != "done":
-                        raise ValueError(str(state["report"].get("error") or
-                                             "Project did not complete.")[:300])
+                        detail = str(state["report"].get("error") or
+                                     "Project did not complete.")[:300]
+                        if exceeded:
+                            detail = "Project exceeded coordinator deadline; " + detail
+                        raise ValueError(detail[:300])
                     _set_item(item["id"], "done")
                 except Exception as exc:
                     log.exception("Batch %s item %s failed", batch_id, item["id"])
