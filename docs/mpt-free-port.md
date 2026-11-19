@@ -259,6 +259,24 @@ content-and-setting keyed cache files. Invalid speeds, unsupported framing
 modes, and non-existent scene slots are rejected. A setting change invalidates
 the final render, but preserves other production stages.
 
+## Non-destructive per-scene clip trimming
+
+Each script slot can now save an optional **Clip in** start time and **Clip out**
+end time in seconds. Both are local source-footage coordinates (0–3600s),
+not changes to narration or subtitle timing. A supplied end must be strictly
+later than the start. FFmpeg extracts the chosen visual range, then applies
+the existing speed, framing and focal-point controls. The downstream renderer
+continues fitting footage to measured speech duration (repeating or shortening
+visuals when necessary), so trimming does not move captions or voice segments.
+
+The trim settings are validated and persisted with the existing per-scene
+effects. They enter prepared-footage cache identities, and a changed trim only
+invalidates the final render; the original media and prior immutable revisions
+remain intact. Use blank fields to keep the complete source clip. This is a
+scene-level cut, not a full draggable timeline, frame-exact editor or
+multiple B-roll cuts within one scene. Real FFmpeg duration regression tests
+are included, but the complete Windows workflow still requires acceptance QA.
+
 ## Per-scene crop focal points
 
 Creator Studio now offers independent horizontal (left/centre/right) and
