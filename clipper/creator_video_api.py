@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, request
 
-from . import creator_render_api as creator, db, local_text_to_video as engine
+from . import creator_render_api as creator, db, local_text_to_video as engine, creator_inference
 
 bp = Blueprint("creator_neural_video", __name__)
 log = logging.getLogger("clipper.creator_neural_video")
@@ -149,5 +149,5 @@ def generate(pid):
                 "VALUES (?,'running','{}') ON CONFLICT(project_id) DO UPDATE SET "
                 "status='running',report_json='{}',updated_at=CURRENT_TIMESTAMP",
                 (pid,))
-        _executor.submit(_run, pid, body["approve_model_download"])
+        _executor.submit(creator_inference.run_exclusive, _run, pid, body["approve_model_download"])
     return jsonify(ok=True, status="generating_video"), 202
