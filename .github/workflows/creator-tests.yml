@@ -33,6 +33,7 @@ on:
       - 'tests/test_creator_*.py'
       - 'tests/test_neural_narration.py'
       - 'static/ext_creator.js'
+      - 'tests/creator_frontend_polling.test.cjs'
       - '.github/workflows/creator-tests.yml'
   workflow_dispatch:
 
@@ -52,6 +53,8 @@ jobs:
         run: python -m compileall -q clipper tests
       - name: Check Creator Studio browser JavaScript syntax
         run: node --check static/ext_creator.js
+      - name: Test Creator Studio frontend polling
+        run: node tests/creator_frontend_polling.test.cjs
       - name: Install FFmpeg for actual rendering tests
         run: |
           sudo apt-get update -qq
