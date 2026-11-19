@@ -83,6 +83,30 @@ def visuals(pid):
                    sources=saved.get("sources", {}))
 
 
+@bp.get("/api/creator/projects/<int:pid>/visuals/<slot>/preview")
+def preview_visual(pid, slot):
+    """Stream only the currently assigned project media, with seek support."""
+    project = _project(pid)
+    if not project:
+        return jsonify(error="Project not found."), 404
+    if not project["script_json"] or slot not in _slots(json.loads(project["script_json"])):
+        return jsonify(error="Unknown scene."), 404
+    filename = _visuals(pid).get(slot)
+    if not filename:
+        return jsonify(error="This scene has no footage yet."), 404
+    try:
+        source = _file_for_slot(pid, filename)
+    except (ProjectError, OSError):
+        return jsonify(error="Scene footage is unavailable."), 404
+    extension = source.suffix.lower()
+    if extension not in VALID_VIDEO_EXTENSIONS:
+        return jsonify(error="Unsupported scene footage format."), 415
+    mimetype = {".mp4": "video/mp4", ".mov": "video/quicktime",
+                ".mkv": "video/x-matroska"}[extension]
+    return send_file(source, mimetype=mimetype, conditional=True,
+                     as_attachment=False, max_age=0)
+
+
 @bp.post("/api/creator/projects/<int:pid>/visuals/<slot>")
 def upload_visual(pid, slot):
     with _upload_lock:
