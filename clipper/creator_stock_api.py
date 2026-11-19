@@ -198,6 +198,12 @@ def _run(pid, requested):
             "SELECT artifact_json FROM creator_stages "
             "WHERE project_id=? AND stage='visuals'", (pid,))
         prior = json.loads(stored["artifact_json"]) if stored and stored["artifact_json"] else {}
+        for rejected in prior.get("rejected_assets", []):
+            if isinstance(rejected, dict):
+                provider = rejected.get("provider")
+                asset_id = rejected.get("asset_id")
+                if provider in providers.PROVIDERS and isinstance(asset_id, str) and asset_id:
+                    seen_assets.add((provider, asset_id))
         for source in (prior.get("sources") or {}).values():
             if isinstance(source, dict):
                 if isinstance(source.get("download_url"), str):
@@ -265,7 +271,7 @@ def _run(pid, requested):
             stage = "done" if all(current.get(s) for s in all_slots) else "pending"
             conn.execute("UPDATE creator_stages SET status=?, artifact_json=?, error=NULL, "
                          "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='visuals'",
-                         (stage, json.dumps({"clips": current, "sources": sources}), pid))
+                         (stage, json.dumps({**old, "clips": current, "sources": sources}), pid))
             if applied:
                 conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
                              "WHERE project_id=? AND stage='render'", (pid,))
@@ -283,6 +289,54 @@ def _run(pid, requested):
                          "error='Stock sourcing failed; retry missing slots.' WHERE id=?", (pid,))
             conn.execute("INSERT OR REPLACE INTO creator_stock_jobs(project_id,status,report_json) "
                          "VALUES (?,?,?)", (pid, "failed", json.dumps({"errors": {"general": "Stock sourcing failed."}})))
+
+
+@bp.post("/api/creator/projects/<int:pid>/stock/reject/<slot>")
+def reject_stock_clip(pid, slot):
+    """Reject a downloaded stock shot without touching immutable render assets."""
+    with creator._upload_lock:
+        with db.get_db() as conn:
+            project = conn.execute("SELECT status,script_json FROM creator_projects WHERE id=?",
+                                   (pid,)).fetchone()
+            if not project:
+                return jsonify(error="Project not found."), 404
+            if project["status"] in creator.BUSY:
+                return jsonify(error="Finish the active production stage first."), 409
+            if not project["script_json"] or slot not in creator._slots(
+                    json.loads(project["script_json"])):
+                return jsonify(error="Unknown scene."), 404
+            row = conn.execute("SELECT artifact_json FROM creator_stages "
+                               "WHERE project_id=? AND stage='visuals'", (pid,)).fetchone()
+            artifact = json.loads(row["artifact_json"]) if row and row["artifact_json"] else {}
+            sources = artifact.get("sources") or {}
+            clips = artifact.get("clips") or {}
+            source = sources.get(slot)
+            if not isinstance(source, dict) or not clips.get(slot):
+                return jsonify(error="Only downloaded stock footage can be rejected."), 409
+            provider = source.get("provider")
+            asset_id = source.get("asset_id")
+            if provider not in providers.PROVIDERS:
+                return jsonify(error="Unknown stock source."), 409
+            rejected = artifact.get("rejected_assets") or []
+            if asset_id is not None and str(asset_id):
+                item = {"provider": provider, "asset_id": str(asset_id)}
+                if item not in rejected:
+                    rejected.append(item)
+            clips.pop(slot)
+            sources.pop(slot)
+            artifact.update(clips=clips, sources=sources, rejected_assets=rejected)
+            conn.execute("UPDATE creator_stages SET artifact_json=?,status='pending',error=NULL,"
+                         "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='visuals'",
+                         (json.dumps(artifact), pid))
+            conn.execute("UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
+                         "WHERE project_id=? AND stage='render'", (pid,))
+            # A previously rendered file remains on disk for immutable revision reuse.
+            if project["status"] == "render_ready":
+                conn.execute("UPDATE creator_projects SET status=? WHERE id=?",
+                             ("narration_ready" if conn.execute(
+                                 "SELECT 1 FROM creator_stages WHERE project_id=? AND stage='narration' "
+                                 "AND status='done'", (pid,)).fetchone() else "script_ready", pid))
+    return jsonify(ok=True, slot=slot, rejected_assets=len(rejected))
 
 
 @bp.post("/api/creator/projects/<int:pid>/stock/auto-fill")
