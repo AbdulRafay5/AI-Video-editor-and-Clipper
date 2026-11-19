@@ -91,6 +91,7 @@ def _sidecar_words(sidecar, duration, offset):
 def _run(pid, script, engine):
     run_id = uuid.uuid4().hex
     folder = _root(pid) / run_id
+    committed = False
     try:
         parts = _segments(script)
         wavs = []
@@ -264,6 +265,7 @@ def upload_narration(pid):
         folder.mkdir(parents=True, exist_ok=False)
         wavs = []
         durations = []
+        total_uploaded = 0
         for i in range(len(parts)):
             upload = request.files["part_%d" % i]
             if not upload.filename or not upload.filename.lower().endswith(".wav"):
@@ -274,8 +276,11 @@ def upload_narration(pid):
             with source.open("wb") as output:
                 while chunk := upload.stream.read(1024 * 1024):
                     size += len(chunk)
+                    total_uploaded += len(chunk)
                     if size > _MAX_UPLOAD_BYTES:
                         raise ValueError("Each recorded segment must be under 25 MB.")
+                    if total_uploaded > _MAX_TOTAL_BYTES:
+                        raise ValueError("Recorded narration exceeds 150 MB combined.")
                     output.write(chunk)
             if size < 44:
                 raise ValueError("A recorded audio segment is empty or invalid.")
@@ -316,16 +321,21 @@ def upload_narration(pid):
                          "WHERE project_id=? AND stage IN ('captions','render')", (pid,))
             conn.execute("UPDATE creator_projects SET status='narration_ready', error=NULL, "
                          "updated_at=CURRENT_TIMESTAMP WHERE id=?", (pid,))
+        committed = True
         return jsonify(ok=True, narration=artifact), 201
     except (ValueError, OSError, subprocess.TimeoutExpired, local_narration.NarrationError) as exc:
         log.warning("Recorded narration rejected for project %s: %s", pid, type(exc).__name__)
-        with db.get_db() as conn:
-            conn.execute("UPDATE creator_projects SET status=? WHERE id=?",
-                         (previous_status, pid))
         return jsonify(error="Unable to import recordings. Check WAV format, length and size."), 422
+    except Exception:
+        log.exception("Unexpected recorded narration failure for project %s", pid)
+        return jsonify(error="Recorded narration failed unexpectedly; check local logs."), 500
     finally:
-        # Failed imports never change the existing narration artifact.
-        if not (folder / "full.wav").is_file():
+        # A file existing on disk does not mean the database transaction committed.
+        # Restore the prior state on *every* failure and remove the entire new run.
+        if not committed:
+            with db.get_db() as conn:
+                conn.execute("UPDATE creator_projects SET status=? WHERE id=? "
+                             "AND status='generating_narration'", (previous_status, pid))
             shutil.rmtree(folder, ignore_errors=True)
 
 
