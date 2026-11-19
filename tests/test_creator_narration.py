@@ -141,7 +141,7 @@ class NarrationTests(unittest.TestCase):
              patch.object(local_narration,"synthesize",side_effect=fake_synthesize) as synth:
             response=self.client.post("/api/creator/narration/preview",
                                       json={"engine":"test","voice":"test-voice"})
-        self.assertEqual(response.status_code,200,response.get_data(as_text=True)[:250])
+        self.assertEqual(response.status_code, 200, response.status)
         self.assertEqual(response.mimetype,"audio/wav")
         self.assertTrue(response.data.startswith(b"RIFF"))
         synth.assert_called_once()
