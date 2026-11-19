@@ -213,6 +213,22 @@ length unchanged. Existing clipper APIs, stored clip projects and their
 render paths are unaffected. Frame crop is centre-aligned; custom pan and
 per-scene crop-position keyframes remain future work.
 
+## Voice and soundtrack mix controls
+
+Creator Studio's **Advanced video editing** panel now exposes separate saved
+**narration volume (0–200%)** and **background music volume (0–100%)** choices.
+They are passed to the FFmpeg/MoneyPrinterTurbo-compatible render manifest,
+rather than modifying source WAV/MP3 files. Defaults remain 100% narration
+and 15% background music. Music volume is ignored when no soundtrack is
+selected.
+
+Older stored editing settings with only `format`, `fit`, `speed` and
+`order` are read with the new audio defaults. Re-saving identical settings
+does not invalidate the export; changing the mix invalidates only the
+render stage, preserving scripts, narrated audio and scene footage. Audio
+controls adjust gain and do not apply loudness normalization, automatic
+ducking or anti-clipping limiting. Review the mixed video before publishing.
+
 ## One-click automatic video production
 
 `clipper/creator_auto_api.py` adds an **opt-in**, persistent, single-project
