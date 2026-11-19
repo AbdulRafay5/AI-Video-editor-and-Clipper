@@ -147,7 +147,7 @@ def rank_candidates(candidates, used_urls=(), desired_seconds=6):
         sufficient = duration >= desired_seconds
         priority = (not portrait, not hd, not sufficient,
                     abs(duration - desired_seconds),
-                    -(width * height),
+                    (width * height) if hd else -(width * height),
                     provider, str(candidate.get("id") or ""), url)
         scored.append((priority, candidate))
     scored.sort(key=lambda item: item[0])
