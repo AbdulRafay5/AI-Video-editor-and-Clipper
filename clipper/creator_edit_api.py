@@ -34,6 +34,8 @@ DEFAULTS = {
     "fit": "cover",
     "speed": 1.0,
     "order": "script",
+    "narration_volume": 1.0,
+    "bgm_volume": 0.15,
 }
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -43,8 +45,11 @@ class EditError(ValueError):
 
 
 def validate(value):
-    if not isinstance(value, dict) or set(value) != set(DEFAULTS):
-        raise EditError("Provide format, fit, speed and order.")
+    required = {"format", "fit", "speed", "order"}
+    if (not isinstance(value, dict) or not required.issubset(value)
+            or set(value) - set(DEFAULTS)):
+        raise EditError("Provide format, fit, speed and order; optional audio levels are supported.")
+    value = {**DEFAULTS, **value}
     if value["format"] not in FORMATS:
         raise EditError("Choose portrait, landscape or square.")
     if value["fit"] not in FITS:
@@ -54,7 +59,19 @@ def validate(value):
     speed = value["speed"]
     if type(speed) not in (int, float) or not math.isfinite(speed) or not 0.5 <= speed <= 2.0:
         raise EditError("Footage speed must be between 0.5x and 2x.")
-    return {**value, "speed": float(speed)}
+    narration_volume = value["narration_volume"]
+    bgm_volume = value["bgm_volume"]
+    if (type(narration_volume) not in (int, float)
+            or not math.isfinite(narration_volume)
+            or not 0.0 <= narration_volume <= 2.0):
+        raise EditError("Narration volume must be 0–200%.")
+    if (type(bgm_volume) not in (int, float)
+            or not math.isfinite(bgm_volume)
+            or not 0.0 <= bgm_volume <= 1.0):
+        raise EditError("Background music volume must be 0–100%.")
+    return {**value, "speed": float(speed),
+            "narration_volume": float(narration_volume),
+            "bgm_volume": float(bgm_volume)}
 
 
 def options(pid):
