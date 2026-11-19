@@ -114,6 +114,46 @@ def _candidates(data):
     return results
 
 
+def rank_candidates(candidates, used_urls=(), desired_seconds=6):
+    """Deterministically prefer relevant-format, usable footage without pretending
+    to inspect frames. Avoid identical assets already used by other scenes.
+
+    This is a metadata-only ranking, *not* semantic or visual understanding.
+    """
+    used = set(used_urls)
+    scored = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        url = candidate.get("download_url")
+        provider = candidate.get("provider", "pixabay")
+        if not isinstance(url, str) or not providers.allowed_url(provider, url):
+            continue
+        if url in used:
+            continue
+        try:
+            width = int(candidate["width"])
+            height = int(candidate["height"])
+            duration = float(candidate["duration"])
+        except (KeyError, ValueError, TypeError, OverflowError):
+            continue
+        if not (360 <= width <= 3840 and 360 <= height <= 3840
+                and 1 <= duration <= 3600):
+            continue
+        # Portrait HD first, then duration fit and resolution. No invented
+        # scores or guessed semantic compatibility from stock-provider IDs.
+        portrait = height > width
+        hd = width >= 720 and height >= 1280
+        sufficient = duration >= desired_seconds
+        priority = (not portrait, not hd, not sufficient,
+                    abs(duration - desired_seconds),
+                    -(width * height),
+                    provider, str(candidate.get("id") or ""), url)
+        scored.append((priority, candidate))
+    scored.sort(key=lambda item: item[0])
+    return [candidate for _, candidate in scored]
+
+
 def _download(url, destination, provider="pixabay"):
     if not providers.allowed_url(provider, url):
         raise ValueError("Stock source failed URL validation.")
@@ -150,7 +190,20 @@ def _run(pid, requested):
         script = json.loads(project["script_json"])
         clips = creator._visuals(pid)
         seen_urls = set()
+        seen_assets = set()
         all_slots = creator._slots(script)
+        # Include already approved assets from earlier sourcing runs so a
+        # retry doesn't unknowingly repeat the same downloaded stock clip.
+        stored = db.query_one(
+            "SELECT artifact_json FROM creator_stages "
+            "WHERE project_id=? AND stage='visuals'", (pid,))
+        prior = json.loads(stored["artifact_json"]) if stored and stored["artifact_json"] else {}
+        for source in (prior.get("sources") or {}).values():
+            if isinstance(source, dict):
+                if isinstance(source.get("download_url"), str):
+                    seen_urls.add(source["download_url"])
+                if source.get("provider") and source.get("asset_id") is not None:
+                    seen_assets.add((source["provider"], str(source["asset_id"])))
         for slot in requested:
             if clips.get(slot):
                 continue
@@ -162,24 +215,41 @@ def _run(pid, requested):
                         candidates.extend(providers.search(name, query))
                     except (ValueError, OSError, urllib.error.URLError, TimeoutError):
                         log.warning("Free provider %s unavailable for scene %s", name, slot)
-                chosen = next((c for c in candidates if c["download_url"] not in seen_urls), None)
-                if chosen is None:
-                    errors[slot] = "No matching free footage found; upload a local video."
-                    continue
-                seen_urls.add(chosen["download_url"])
-                folder = creator._root(pid) / "visuals"
-                folder.mkdir(parents=True, exist_ok=True)
-                filename = "clip_" + uuid.uuid4().hex + ".mp4"
-                target = folder / filename
-                _download(chosen["download_url"], target, chosen.get("provider", "pixabay"))
-                clips[slot] = filename
-                downloaded.append(target)
-                applied[slot] = {
-                    "filename": filename, "provider": chosen.get("provider", "pixabay"),
-                    "source_page": chosen["source_page"],
-                    "creator": chosen["creator"], "query": query,
-                    "asset_id": chosen["id"],
-                }
+                ranked = rank_candidates(candidates, seen_urls)
+                # Different provider renditions of the same stock ID are the
+                # same visual. Fall back to other candidates on a bad download.
+                accepted = False
+                for chosen in ranked:
+                    provider = chosen.get("provider", "pixabay")
+                    asset = (provider, str(chosen.get("id") or ""))
+                    if asset in seen_assets and asset[1]:
+                        continue
+                    folder = creator._root(pid) / "visuals"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    filename = "clip_" + uuid.uuid4().hex + ".mp4"
+                    target = folder / filename
+                    try:
+                        _download(chosen["download_url"], target, provider)
+                    except (ValueError, OSError, urllib.error.URLError, TimeoutError, video.VideoError):
+                        log.warning("Rejected stock candidate from %s for scene %s", provider, slot)
+                        target.unlink(missing_ok=True)
+                        continue
+                    clips[slot] = filename
+                    downloaded.append(target)
+                    seen_urls.add(chosen["download_url"])
+                    if asset[1]:
+                        seen_assets.add(asset)
+                    applied[slot] = {
+                        "filename": filename, "provider": provider,
+                        "source_page": chosen.get("source_page", ""),
+                        "creator": chosen.get("creator", ""), "query": query,
+                        "asset_id": chosen.get("id"),
+                        "download_url": chosen["download_url"],
+                    }
+                    accepted = True
+                    break
+                if not accepted:
+                    errors[slot] = "No usable distinct footage found; refine the visual idea or upload footage."
             except (ValueError, OSError, urllib.error.URLError, TimeoutError, video.VideoError):
                 errors[slot] = "Search or download failed; try another idea or upload footage."
                 log.warning("Free footage unavailable for Creator %s slot %s", pid, slot)
