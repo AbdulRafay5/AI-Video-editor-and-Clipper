@@ -82,9 +82,14 @@ def _file_for_slot(pid, filename):
             not filename.startswith("clip_") or
             Path(filename).name != filename):
         raise ProjectError("Invalid media reference.")
-    path = _root(pid) / "visuals" / filename
-    if not path.is_file():
-        raise ProjectError("Missing scene footage. Upload it again.")
+    folder = (_root(pid) / "visuals").resolve()
+    path = folder / filename
+    # Even a trusted-looking asset name must not escape through a symlink.
+    # Reject linked files rather than following them into arbitrary folders.
+    if path.is_symlink() or path.resolve().parent != folder:
+        raise ProjectError("Unsafe scene footage reference.")
+    if not path.is_file() or path.suffix.lower() not in VALID_VIDEO_EXTENSIONS:
+        raise ProjectError("Missing or unsupported scene footage. Upload it again.")
     return path
 
 
