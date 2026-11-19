@@ -181,6 +181,50 @@ class RenderBridgeTests(unittest.TestCase):
         self.assertFalse(self.client.get(endpoint).get_json()["ready"])
         self.assertEqual(self.client.get(endpoint + "/file?preview=1").status_code, 404)
 
+    def test_verified_artifact_rejects_size_changes(self):
+        revision = "e" * 32
+        folder = render._root(self.pid) / "finished"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"finished_{revision}.mp4"
+        path.write_bytes(b"fixture" * 300)
+        artifact = {"revision_id": revision, "final_name": path.name,
+                    "verification": {"bytes": path.stat().st_size}}
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='render'",
+                   (json.dumps(artifact), self.pid))
+        endpoint = f"/api/creator/projects/{self.pid}/render"
+        self.assertTrue(self.client.get(endpoint).get_json()["ready"])
+        path.write_bytes(b"fixture" * 200)
+        self.assertFalse(self.client.get(endpoint).get_json()["ready"])
+        self.assertEqual(self.client.get(endpoint + "/file").status_code, 404)
+
+    def test_probe_validation_rejects_missing_audio_bad_duration_and_metadata(self):
+        output = render._root(self.pid) / "candidate.mp4"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"video-content" * 120)
+        good = {"format": {"duration": "3.0"}, "streams": [
+            {"codec_type": "video", "codec_name": "h264", "width": 720, "height": 1280},
+            {"codec_type": "audio", "codec_name": "aac"}]}
+        def probe(data, code=0):
+            return type("Result", (), {"returncode": code, "stdout": json.dumps(data)})()
+        with patch.object(render.shutil, "which", return_value="ffprobe"), \
+             patch.object(render.subprocess, "run", return_value=probe(good)):
+            verified = render._verify_export(output, 3)
+            self.assertEqual(verified["width"], 720)
+            self.assertTrue(verified["has_audio"])
+            self.assertEqual(verified["bytes"], output.stat().st_size)
+        for bad in (
+            {"format": {"duration": "3.0"}, "streams": good["streams"][:1]},
+            {"format": {"duration": "12.0"}, "streams": good["streams"]},
+            {"format": {"duration": "NaN"}, "streams": good["streams"]},
+            {"format": {}, "streams": good["streams"]},
+            {"format": {"duration": "3.0"}, "streams": []},
+        ):
+            with patch.object(render.shutil, "which", return_value="ffprobe"), \
+                 patch.object(render.subprocess, "run", return_value=probe(bad)):
+                with self.assertRaises(render.ProjectError):
+                    render._verify_export(output, 3)
+
     def test_cancel_requires_active_render(self):
         self.assertEqual(self.client.post(
             f"/api/creator/projects/{self.pid}/render/cancel").status_code, 409)
@@ -242,6 +286,26 @@ class UpstreamRenderSmokeTests(unittest.TestCase):
         completed = subprocess.run(command, capture_output=True,
                                    text=True, timeout=30)
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_real_ffprobe_accepts_valid_mp4_and_rejects_corrupt_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            output = root / "verified.mp4"
+            command = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "color=c=blue:s=128x128:r=10:d=2",
+                "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", str(output),
+            ]
+            subprocess.run(command, check=True, timeout=40)
+            verified = render._verify_export(output, 2.0)
+            self.assertTrue(verified["has_audio"])
+            self.assertAlmostEqual(verified["duration"], 2.0, delta=0.2)
+            corrupt = root / "corrupt.mp4"
+            corrupt.write_bytes(b"this is not an mp4" * 100)
+            with self.assertRaises(render.ProjectError):
+                render._verify_export(corrupt, 2.0)
 
     def test_real_one_scene_video_export_and_cache_reuse(self):
         with tempfile.TemporaryDirectory() as directory:
