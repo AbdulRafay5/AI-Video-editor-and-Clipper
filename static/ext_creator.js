@@ -198,11 +198,53 @@
       if(chosen.voices.includes(chosen.voice)) voiceSelect.value = chosen.voice;
       voiceInfo.textContent = chosen.description + (chosen.online
         ? " · Free, Internet connection required" : " · Free, runs locally");
-      voiceButton.disabled = !chosen.ready || ["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
+      const voiceBusy=["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
+      voiceButton.disabled=!chosen.ready||voiceBusy;
+      previewVoiceButton.disabled=!chosen.ready||voiceBusy;
     }
     engineSelect.addEventListener("change", syncVoiceOptions);
+    const previewVoiceButton=document.createElement("button");
+    previewVoiceButton.type="button";
+    previewVoiceButton.className="secondary";
+    previewVoiceButton.textContent="Preview selected voice";
+    previewVoiceButton.disabled=true;
+    const previewVoiceAudio=document.createElement("audio");
+    previewVoiceAudio.controls=true;
+    previewVoiceAudio.preload="none";
+    previewVoiceAudio.style.display="none";
+    const previewVoiceNote=document.createElement("p");
+    previewVoiceNote.className="muted";
+    let previewVoiceUrl=null;
+    async function previewCurrentVoice(){
+      previewVoiceButton.disabled=true;
+      previewVoiceNote.textContent="Generating a short voice sample...";
+      try{
+        const response=await fetch("/api/creator/narration/preview",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({engine:engineSelect.value,voice:voiceSelect.value})
+        });
+        if(!response.ok){
+          const error=await response.json().catch(()=>({}));
+          throw Error(error.error||"Voice preview is unavailable.");
+        }
+        const blob=await response.blob();
+        if(selected!==project.id)return;
+        if(previewVoiceUrl)URL.revokeObjectURL(previewVoiceUrl);
+        previewVoiceUrl=URL.createObjectURL(blob);
+        previewVoiceAudio.src=previewVoiceUrl;
+        previewVoiceAudio.style.display="";
+        previewVoiceNote.textContent="Preview only; your saved narration is unchanged.";
+        await previewVoiceAudio.play().catch(()=>{});
+      }catch(err){
+        if(selected===project.id)previewVoiceNote.textContent=err.message;
+      }finally{
+        if(selected===project.id)previewVoiceButton.disabled=false;
+      }
+    }
+    previewVoiceButton.onclick=previewCurrentVoice;
     const audioList = document.createElement("div");
-    voiceBox.append(voiceTitle, voiceInfo, engineLabel, voiceLabel, voiceButton, audioList);
+    voiceBox.append(voiceTitle, voiceInfo, engineLabel, voiceLabel, previewVoiceButton,
+      previewVoiceAudio,previewVoiceNote,voiceButton,audioList);
     container.append(voiceBox);
     request("GET", "/api/creator/narration/capabilities").then(data => {
       if(selected !== project.id) return;
