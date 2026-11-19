@@ -50,7 +50,7 @@ def _run(pid, approve_download):
         llm.unload()
         with engine.LocalCogVideoX(allow_download=approve_download) as model:
             for slot in slots:
-                prompt = engine.prompt_for(slot, script)
+                prompt = engine.prompt_for(slot, script, project["topic"])
                 target = folder / ("clip_" + uuid.uuid4().hex + ".mp4")
                 created.append(target)
                 info = model.generate(prompt, target)
@@ -107,8 +107,9 @@ def capabilities():
     return jsonify(model=engine.MODEL, installed=engine.dependencies_ready(),
                    free_local=True, true_neural_video=True,
                    model_download_requires_approval=True,
-                   frames=49, fps=8,
-                   warning="6 GB VRAM is experimental; substantial CPU RAM, storage and time required.")
+                   frames=engine.DEFAULT_FRAMES, fps=engine.FPS,
+                   steps=engine.DEFAULT_STEPS,
+                   warning="Low-VRAM mode generates short 17-frame clips; results may be low quality and 6GB VRAM can still OOM.")
 
 
 @bp.get("/api/creator/projects/<int:pid>/neural-video")
