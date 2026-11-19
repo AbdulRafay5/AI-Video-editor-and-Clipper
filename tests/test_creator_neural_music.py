@@ -210,6 +210,19 @@ class NeuralApiTests(unittest.TestCase):
         audio_response.close()
         self.assertNotEqual(creator._project(self.pid)["status"], "generating_music")
 
+    def test_executor_shutdown_restores_music_project_state(self):
+        with patch.object(musicgen, "dependencies_ready", return_value=True), \
+             patch.object(neural._executor, "submit",
+                          side_effect=RuntimeError("executor shut down")):
+            response = self.client.post(
+                self.prefix + "/generate",
+                json={"mood": "calm", "duration": 6, "download_model": False})
+        self.assertEqual(response.status_code, 503)
+        self.assertNotEqual(creator._project(self.pid)["status"], "generating_music")
+        status = self.client.get(self.prefix).get_json()
+        self.assertEqual(status["status"], "failed")
+        self.assertIn("restart", status["report"]["error"])
+
     def test_failure_preserves_previous_music(self):
         old_path = creator._root(self.pid) / "music" / "music_previous.wav"
         self._fake_neural(old_path, "previous", 6)
