@@ -83,7 +83,14 @@ def generate_image(prompt, target, *, allow_download=False):
             "Local image generation failed. Check RAM/VRAM or model setup."
         ) from exc
     finally:
+        # CPU-offloaded diffusion pipelines can retain sizeable tensor graphs
+        # until GC runs. Release the image and pipeline before CUDA cache
+        # eviction, especially on 6 GB laptops running sequential scenes.
+        if "photo" in locals():
+            del photo
         del pipe
+        import gc
+        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
