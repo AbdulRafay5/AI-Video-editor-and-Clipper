@@ -42,16 +42,18 @@ local model and does **not** submit billable tasks.
 
 - Model: https://huggingface.co/zai-org/CogVideoX-2b
 - Diffusers pipeline: `CogVideoXPipeline`
-- Produces **49 neural video frames per scene at 8fps** (~6 seconds),
-  independent of the image-motion mode. The existing video renderer loops
-  or trims scene materials to match speech length.
+- The experimental low-VRAM preset generates **17 neural frames per scene at 8fps**
+  (~2.1 seconds), with 20 inference steps. It was chosen to reduce VRAM usage;
+  quality and motion length are limited. The renderer may loop/trim clips to
+  match longer narration segments.
 - Model weights are FP16; `enable_sequential_cpu_offload()`, VAE slicing and
   VAE tiling are enabled to reduce peak VRAM. CPU offloading may use large
   amounts of system RAM and drastically slow inference.
 - A single model load is reused across the scenes. Ollama is unloaded before
   CogVideoX to free GPU memory. No silent paid APIs or remote inference.
-- Neural video generation uses **the currently saved script visual ideas**.
-  Generating a new script can change the prompts.
+- Neural video generation includes the **project topic/subject** in each scene
+  prompt, alongside the currently saved visual ideas. It cannot guarantee
+  character identity or consistent appearance across independently generated scenes.
 - Generated clips are validated with FFprobe. The new scene references replace
   old stock or manual selections **only after all clips succeed**. Failed or
   interrupted jobs keep the previously selected visuals.
@@ -64,9 +66,10 @@ CI checks request validation, download consent, job recovery, scene replacement,
 and the final FFmpeg video render with a stand-in model returning real video
 files. **CI does not download CogVideoX weights or run GPU inference.**
 
-Although documented low-memory CogVideoX paths have been published, this exact
-pipeline has not been benchmarked on the user's Windows laptop, and success
-on a 6GB GPU is **not guaranteed**. If inference fails, the project will
+A short 17-frame test clip was generated during manual development, but a
+complete end-to-end low-memory batch has not been validated on the target
+Windows laptop. Success on a 6GB GPU is **not guaranteed**, and visual quality
+may be poor. If inference fails, the project will
 preserve its existing footage and show a useful error.
 
 This is an optional experimental mode, not a claim of identical performance to
