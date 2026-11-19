@@ -160,8 +160,8 @@ def set_options(pid):
         conn.execute("UPDATE creator_stages SET status=?, artifact_json=?, error=NULL, "
                      "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='captions'",
                      ("done" if body["captions"] else "pending", json.dumps(previous), pid))
-        conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
-                     "WHERE project_id=? AND stage='render'", (pid,))
+        from . import creator_render_api as render
+        render.invalidate_render(conn, pid)
     return jsonify(settings=body)
 
 
