@@ -310,8 +310,11 @@ def init_db():
             "WHERE stage='script' AND status='running'"
         )
         conn.execute(
-            "UPDATE creator_projects SET status='script_ready', "
-            "error='Narration interrupted by app restart; generate again.' "
+            "UPDATE creator_projects SET status=CASE "
+            "WHEN EXISTS(SELECT 1 FROM creator_stages s WHERE s.project_id=creator_projects.id "
+            "AND s.stage='narration' AND s.status='done') THEN 'narration_ready' "
+            "WHEN script_json IS NOT NULL THEN 'script_ready' ELSE 'draft' END, "
+            "error='Narration interrupted by app restart; retry or reuse saved narration.' "
             "WHERE status='generating_narration'"
         )
         conn.execute(
@@ -320,7 +323,10 @@ def init_db():
             "WHERE stage='narration' AND status='running'"
         )
         conn.execute(
-            "UPDATE creator_projects SET status='narration_ready', "
+            "UPDATE creator_projects SET status=CASE "
+            "WHEN EXISTS(SELECT 1 FROM creator_stages s WHERE s.project_id=creator_projects.id "
+            "AND s.stage='narration' AND s.status='done') THEN 'narration_ready' "
+            "WHEN script_json IS NOT NULL THEN 'script_ready' ELSE 'draft' END, "
             "error='Rendering interrupted by app restart; render again.' "
             "WHERE status='rendering'"
         )
