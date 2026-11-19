@@ -93,6 +93,11 @@ def _run(batch_id, app):
                 ") THEN 'blocked' ELSE 'done' END,updated_at=CURRENT_TIMESTAMP "
                 "WHERE id=? AND status='running'",
                 (batch_id, batch_id))
+            db.execute(
+                "UPDATE creator_batches SET status='done',updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status='paused' AND NOT EXISTS("
+                "SELECT 1 FROM creator_batch_items WHERE batch_id=? AND status!='done')",
+                (batch_id, batch_id))
         except Exception:
             log.exception("Batch coordinator %s failed unexpectedly", batch_id)
             db.execute(
@@ -182,6 +187,11 @@ def retry_batch(batch_id):
                 return jsonify(error="Batch not found."), 404
             if row["status"] == "running":
                 return jsonify(error="This batch is already running."), 409
+            active = conn.execute(
+                "SELECT 1 FROM creator_batch_items WHERE batch_id=? AND status='running' "
+                "LIMIT 1", (batch_id,)).fetchone()
+            if active:
+                return jsonify(error="The active video is still finishing. Retry after it completes."), 409
             pending = conn.execute(
                 "SELECT COUNT(*) AS n FROM creator_batch_items WHERE batch_id=? "
                 "AND status IN ('blocked','interrupted','queued')", (batch_id,)).fetchone()["n"]
