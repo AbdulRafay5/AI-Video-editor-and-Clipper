@@ -19,7 +19,8 @@
       </select></label>
     </div>
     <div class="actions"><button id="creator-create" type="button">Create video project</button>
-      <button id="creator-refresh" type="button" class="secondary">Refresh projects</button></div>
+      <button id="creator-refresh" type="button" class="secondary">Refresh projects</button>
+      <button id="creator-diagnostics" type="button" class="secondary">Check setup</button></div>
     <p id="creator-message" class="msg" role="status"></p>
     <section class="card" aria-label="Batch video production">
       <h3>Batch video production</h3>
@@ -1571,6 +1572,24 @@
       await refreshList();
       await refreshBatches();
     }catch(err){$("creator-batch-message").textContent=err.message;}
+    finally{button.disabled=false;}
+  };
+  $("creator-diagnostics").onclick=async()=>{
+    const button=$("creator-diagnostics");
+    button.disabled=true;
+    try{
+      const status=await request("GET","/api/creator/diagnostics");
+      const flags=status.optional||{};
+      const summary=[
+        "FFmpeg/FFprobe: "+(status.ready_for_render?"ready":"missing"),
+        "Ollama "+(status.ollama?.model||"")+
+          ": "+(status.ready_for_ai_script?"ready":"not ready"),
+        "AI images: "+(flags.ai_images?"installed":"optional dependencies missing"),
+        "MusicGen: "+(flags.musicgen?"installed":"optional dependencies missing"),
+        "Neural video: "+(flags.neural_video?"installed":"experimental/not installed")
+      ];
+      say(summary.join(" · ")+". "+(status.ready_for_ai_script?"":status.ollama?.message||""));
+    }catch(err){say("Setup check failed: "+err.message);}
     finally{button.disabled=false;}
   };
   $("creator-batch-refresh").onclick=refreshBatches;
