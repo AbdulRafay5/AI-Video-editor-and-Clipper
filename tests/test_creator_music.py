@@ -54,6 +54,31 @@ class MusicTests(unittest.TestCase):
         self.assertEqual(selected.status_code, 201, selected.get_data(as_text=True))
         self.assertEqual(render._music(self.pid)["duration"], 5.0)
 
+    def test_new_music_invalidates_export_without_losing_narration(self):
+        db.execute("UPDATE creator_projects SET status='render_ready' WHERE id=?",
+                   (self.pid,))
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='narration'",
+                   (json.dumps({"segments": []}), self.pid))
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='render'",
+                   (json.dumps({"revision_id": "a" * 32}), self.pid))
+        result = self.client.post(
+            f"/api/creator/projects/{self.pid}/music/generate",
+            json={"mood": "ambient", "seconds": 5})
+        self.assertEqual(result.status_code, 201, result.get_json())
+        self.assertEqual(db.query_one(
+            "SELECT status FROM creator_projects WHERE id=?", (self.pid,))["status"],
+            "narration_ready")
+        rendered = db.query_one(
+            "SELECT status,artifact_json FROM creator_stages "
+            "WHERE project_id=? AND stage='render'", (self.pid,))
+        self.assertEqual(rendered["status"], "pending")
+        self.assertIsNone(rendered["artifact_json"])
+        self.assertEqual(db.query_one(
+            "SELECT status FROM creator_stages WHERE project_id=? AND stage='narration'",
+            (self.pid,))["status"], "done")
+
     def test_rejects_invalid_generated_mood(self):
         result = self.client.post(f"/api/creator/projects/{self.pid}/music/generate",
                                   json={"mood": "paid-ai", "seconds": 15})
