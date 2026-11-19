@@ -3,6 +3,8 @@ import json
 import logging
 import io
 import math
+import shutil
+import subprocess
 import tempfile
 import threading
 import uuid
@@ -223,6 +225,108 @@ def generate_narration(pid):
                      "WHERE project_id=? AND stage IN ('captions','render')", (pid,))
     _executor.submit(_run, pid, script, engine)
     return jsonify(ok=True, status="generating_narration"), 202
+
+
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_MAX_TOTAL_BYTES = 150 * 1024 * 1024
+_BUSY_STATES = ("generating_narration", "generating_script", "rendering",
+                "sourcing_visuals", "aligning_captions", "generating_music",
+                "generating_images")
+
+
+@bp.post("/api/creator/projects/<int:pid>/narration/upload")
+def upload_narration(pid):
+    """Replace narration atomically with one user-owned WAV per script segment."""
+    if request.content_length is not None and request.content_length > _MAX_TOTAL_BYTES:
+        return jsonify(error="Narration upload exceeds 150 MB."), 413
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return jsonify(error="FFmpeg is required for recorded narration."), 503
+    with db.get_db() as conn:
+        project = conn.execute("SELECT status, script_json FROM creator_projects WHERE id=?",
+                               (pid,)).fetchone()
+        if not project:
+            return jsonify(error="Project not found."), 404
+        previous_status = project["status"]
+        if previous_status in _BUSY_STATES:
+            return jsonify(error="Wait until the current generation finishes."), 409
+        if not project["script_json"]:
+            return jsonify(error="Save a script before uploading narration."), 409
+        parts = _segments(json.loads(project["script_json"]))
+        expected = {"part_%d" % i for i in range(len(parts))}
+        if set(request.files) != expected:
+            return jsonify(error="Upload one WAV file for the hook, every scene and the closing."), 400
+        conn.execute("UPDATE creator_projects SET status='generating_narration' WHERE id=?", (pid,))
+
+    run_id = uuid.uuid4().hex
+    folder = _root(pid) / run_id
+    try:
+        folder.mkdir(parents=True, exist_ok=False)
+        wavs = []
+        durations = []
+        for i in range(len(parts)):
+            upload = request.files["part_%d" % i]
+            if not upload.filename or not upload.filename.lower().endswith(".wav"):
+                raise ValueError("All recorded narration segments must be WAV files.")
+            source = folder / ("upload_%02d.wav" % i)
+            # Stream in bounded chunks; do not trust client-provided size metadata.
+            size = 0
+            with source.open("wb") as output:
+                while chunk := upload.stream.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > _MAX_UPLOAD_BYTES:
+                        raise ValueError("Each recorded segment must be under 25 MB.")
+                    output.write(chunk)
+            if size < 44:
+                raise ValueError("A recorded audio segment is empty or invalid.")
+            target = folder / ("part_%02d.wav" % i)
+            result = subprocess.run(
+                [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+                 "-i", str(source), "-vn", "-ac", "1", "-ar", "22050",
+                 "-c:a", "pcm_s16le", str(target)],
+                capture_output=True, timeout=90, creationflags=local_narration.NO_WINDOW)
+            if result.returncode != 0:
+                raise ValueError("A recorded WAV could not be decoded.")
+            duration = local_narration.wav_duration(target)
+            source.unlink(missing_ok=True)
+            wavs.append(target)
+            durations.append(duration)
+        total = local_narration.combine(wavs, folder / "full.wav")
+        offset = 0.0
+        timeline = []
+        for i, (part, duration) in enumerate(zip(parts, durations)):
+            timeline.append({
+                "kind": part["kind"], "scene_index": part.get("scene_index"),
+                "text": part["text"], "file": "part_%02d.wav" % i,
+                "start": round(offset, 3), "end": round(offset + duration, 3),
+                "duration": duration,
+            })
+            offset += duration
+        artifact = {
+            "engine": "recorded", "voice": "Custom recording", "pace": 1.0,
+            "run_id": run_id, "file": "full.wav", "duration": total,
+            "segments": timeline, "aligned_words": [],
+            "word_timing_source": None,
+        }
+        with db.get_db() as conn:
+            conn.execute("UPDATE creator_stages SET status='done', artifact_json=?, error=NULL, "
+                         "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='narration'",
+                         (json.dumps(artifact, ensure_ascii=False), pid))
+            conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
+                         "WHERE project_id=? AND stage IN ('captions','render')", (pid,))
+            conn.execute("UPDATE creator_projects SET status='narration_ready', error=NULL, "
+                         "updated_at=CURRENT_TIMESTAMP WHERE id=?", (pid,))
+        return jsonify(ok=True, narration=artifact), 201
+    except (ValueError, OSError, subprocess.TimeoutExpired, local_narration.NarrationError) as exc:
+        log.warning("Recorded narration rejected for project %s: %s", pid, type(exc).__name__)
+        with db.get_db() as conn:
+            conn.execute("UPDATE creator_projects SET status=? WHERE id=?",
+                         (previous_status, pid))
+        return jsonify(error="Unable to import recordings. Check WAV format, length and size."), 422
+    finally:
+        # Failed imports never change the existing narration artifact.
+        if not (folder / "full.wav").is_file():
+            shutil.rmtree(folder, ignore_errors=True)
 
 
 @bp.get("/api/creator/projects/<int:pid>/narration/audio")
