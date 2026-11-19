@@ -206,8 +206,8 @@ def validate_scene_effects(effects, slots):
         raise EditError("Effects reference a scene that does not exist.")
     cleaned = {}
     for slot, effect in effects.items():
-        if not isinstance(effect, dict) or not effect or set(effect) - {"speed", "fit", "crop_x", "crop_y"}:
-            raise EditError("Scene effects may set speed, fit or crop position.")
+        if not isinstance(effect, dict) or not effect or set(effect) - {"speed", "fit", "crop_x", "crop_y", "trim_start", "trim_end"}:
+            raise EditError("Scene effects may set speed, fit, crop position or trim times.")
         item = {}
         if "speed" in effect:
             speed = effect["speed"]
@@ -224,6 +224,15 @@ def validate_scene_effects(effects, slots):
                 if type(position) not in (int, float) or not math.isfinite(position) or not 0 <= position <= 1:
                     raise EditError("Crop position must be between 0 and 1.")
                 item[axis] = float(position)
+        for field in ("trim_start", "trim_end"):
+            if field in effect:
+                value = effect[field]
+                if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 3600:
+                    raise EditError("Trim times must be between 0 and 3600 seconds.")
+                item[field] = float(value)
+        if ("trim_end" in item and
+                item["trim_end"] <= item.get("trim_start", 0.0)):
+            raise EditError("Trim end must be greater than trim start.")
         cleaned[slot] = item
     return cleaned
 
@@ -238,7 +247,7 @@ def scene_effects(pid, slots):
     # Retain valid current slots after the script has been edited.
     return {slot: options for slot, options in saved.items()
             if slot in slots and isinstance(options, dict)
-            and not (set(options) - {"speed", "fit", "crop_x", "crop_y"})}
+            and not (set(options) - {"speed", "fit", "crop_x", "crop_y", "trim_start", "trim_end"})}
 
 
 @bp.get("/api/creator/projects/<int:pid>/edit/scene-effects")
@@ -298,8 +307,13 @@ def prepare_footage(pid, source, slot, current):
     source = Path(source)
     crop_x = current.get("crop_x", 0.5)
     crop_y = current.get("crop_y", 0.5)
+    trim_start = current.get("trim_start", 0.0)
+    trim_end = current.get("trim_end")
+    if trim_end is not None and trim_end <= trim_start:
+        raise EditError("Trim end must be greater than trim start.")
     if (current["fit"] == "cover" and current["speed"] == 1.0
-            and crop_x == 0.5 and crop_y == 0.5):
+            and crop_x == 0.5 and crop_y == 0.5
+            and trim_start == 0.0 and trim_end is None):
         return source
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -322,6 +336,7 @@ def prepare_footage(pid, source, slot, current):
         "source": str(source.resolve()), "size": stat.st_size,
         "mtime_ns": stat.st_mtime_ns, "format": current["format"],
         "fit": current["fit"], "speed": speed, "crop_x": crop_x, "crop_y": crop_y,
+        "trim_start": trim_start, "trim_end": trim_end,
     }
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:32]
     from . import creator_render_api as creator
@@ -333,7 +348,10 @@ def prepare_footage(pid, source, slot, current):
     temp = destination_dir / f".{uuid.uuid4().hex}.mp4"
     command = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-        "-i", str(source), "-map", "0:v:0", "-an", "-vf", filter_chain,
+        *(["-ss", str(trim_start)] if trim_start else []),
+        "-i", str(source),
+        *(["-t", str(trim_end - trim_start)] if trim_end is not None else []),
+        "-map", "0:v:0", "-an", "-vf", filter_chain,
         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", str(temp),
     ]
