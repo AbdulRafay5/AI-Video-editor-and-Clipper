@@ -213,6 +213,22 @@ length unchanged. Existing clipper APIs, stored clip projects and their
 render paths are unaffected. Frame crop is centre-aligned; custom pan and
 per-scene crop-position keyframes remain future work.
 
+## Per-scene playback and framing
+
+Creator Studio now allows an independent **footage playback speed** (0.5×–2×)
+and **framing mode** (crop to fill or letterbox) for the opening, each scene,
+and the ending. Empty scene settings inherit the project's global editing
+preferences. Choices are saved separately per project in
+`creator_scene_effects`; older projects retain the previous defaults.
+
+Per-scene settings are applied only while preparing footage through FFmpeg.
+The script, generated narration, subtitle chronology, and speech-aligned scene
+durations are not modified. The renderer may repeat/trim the adjusted footage
+to match narration. Source files are never overwritten; prepared clips have
+content-and-setting keyed cache files. Invalid speeds, unsupported framing
+modes, and non-existent scene slots are rejected. A setting change invalidates
+the final render, but preserves other production stages.
+
 ## Manual scene-by-scene footage reuse
 
 The Advanced video editing panel includes **manual scene footage assignment**
