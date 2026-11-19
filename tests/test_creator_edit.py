@@ -158,6 +158,10 @@ class CreatorEditingTests(unittest.TestCase):
         self.assertEqual(stages["narration"], "done")
         self.assertFalse(self.client.put(endpoint, json={
             "assignments":{"scene_0":"hook","closing":"hook"}}).get_json()["changed"])
+        self.assertEqual(self.client.put(endpoint,json={
+            "assignments":{"hook":"hook"}}).status_code,200)
+        self.assertEqual(self.client.get(endpoint).get_json()["assignments"],
+                         {"hook":"hook"})
         for invalid in (
             {"assignments":{"scene_0":"scene_99"}},
             {"assignments":{"unknown":"hook"}},
