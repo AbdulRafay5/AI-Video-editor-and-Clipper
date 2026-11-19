@@ -79,6 +79,38 @@ class CreatorBatchTests(unittest.TestCase):
         self.assertEqual([i["status"] for i in states], ["done", "queued"])
         self.assertIsNone(states[1]["error"])
 
+    def test_pause_preserves_queued_items_and_resume(self):
+        response = self.client.post("/api/creator/batches", json=self.payload)
+        bid = response.get_json()["batch"]["id"]
+        items = response.get_json()["batch"]["items"]
+        pause = self.client.post(f"/api/creator/batches/{bid}/pause")
+        self.assertEqual(pause.status_code, 200, pause.get_json())
+        self.assertEqual(pause.get_json()["batch"]["status"], "paused")
+        self.assertEqual([x["status"] for x in pause.get_json()["batch"]["items"]],
+                         ["queued", "queued"])
+        self.assertEqual(self.client.post(
+            f"/api/creator/batches/{bid}/pause").status_code, 409)
+        resumed = self.client.post(f"/api/creator/batches/{bid}/retry", json={})
+        self.assertEqual(resumed.status_code, 202)
+        self.assertEqual(resumed.get_json()["batch"]["status"], "running")
+        self.assertEqual([x["id"] for x in resumed.get_json()["batch"]["items"]],
+                         [x["id"] for x in items])
+
+    def test_pause_waits_for_running_video_before_resume(self):
+        response = self.client.post("/api/creator/batches", json=self.payload)
+        bid = response.get_json()["batch"]["id"]
+        first = response.get_json()["batch"]["items"][0]["id"]
+        db.execute("UPDATE creator_batch_items SET status='running' WHERE id=?", (first,))
+        self.assertEqual(self.client.post(
+            f"/api/creator/batches/{bid}/pause").status_code, 200)
+        retry = self.client.post(f"/api/creator/batches/{bid}/retry", json={})
+        self.assertEqual(retry.status_code, 409)
+        self.assertEqual(self.client.get(f"/api/creator/batches/{bid}")
+                         .get_json()["batch"]["status"], "paused")
+        db.execute("UPDATE creator_batch_items SET status='done' WHERE id=?", (first,))
+        self.assertEqual(self.client.post(
+            f"/api/creator/batches/{bid}/retry", json={}).status_code, 202)
+
     def test_app_restart_marks_running_batch_interrupted(self):
         response = self.client.post("/api/creator/batches", json=self.payload)
         bid = response.get_json()["batch"]["id"]
