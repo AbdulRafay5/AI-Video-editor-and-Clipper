@@ -165,6 +165,26 @@ class ImageTests(unittest.TestCase):
         self.assertTrue(all((folder / name).is_file() for name in old.values()))
         self.assertEqual(self.client.get(self.path).get_json()["status"], "done")
 
+    def test_ai_replacement_preserves_rejected_stock_history(self):
+        rejected = [{"provider": "pixabay", "asset_id": "42"}]
+        db.execute("UPDATE creator_stages SET artifact_json=? "
+                   "WHERE project_id=? AND stage='visuals'",
+                   (json.dumps({"clips": {}, "sources": {},
+                                "rejected_assets": rejected}), self.pid))
+        def image(prompt, target, **kwargs):
+            target.write_bytes(b"local image fixture")
+            return {"model": local_imagegen.MODEL}
+        def animate(source, target, **kwargs):
+            target.write_bytes(b"animated MP4 fixture")
+        with patch.object(local_imagegen, "generate_image", side_effect=image), \
+             patch.object(local_imagegen, "animate_still", side_effect=animate):
+            images._generate_all(self.pid, False)
+        saved = db.query_one("SELECT artifact_json FROM creator_stages "
+                             "WHERE project_id=? AND stage='visuals'", (self.pid,))
+        artifact = json.loads(saved["artifact_json"])
+        self.assertEqual(artifact["rejected_assets"], rejected)
+        self.assertEqual(len(artifact["clips"]), 3)
+
     def test_replace_existing_mode_accepts_already_complete_project(self):
         db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
                    "WHERE project_id=? AND stage='visuals'",
