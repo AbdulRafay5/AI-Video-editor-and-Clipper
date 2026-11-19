@@ -537,3 +537,20 @@ Do not resume until the active item has stopped. Completed videos are retained,
 and incomplete projects can be retried using the existing batch controls.
 Automated unit tests model coordinator deadline and lingering-stage scenarios;
 real Windows tests are still needed.
+
+## AI-only automation retries and local GPU use
+
+Automation's `visual_mode=ai` now checks whether **all** current script
+slots already have locally saved AI-generated MP4 files with
+`local-sd-turbo` source metadata and a completed visuals stage. If so,
+a retry following a music, captions, or render failure **reuses** those scenes
+instead of regenerating them. This avoids unnecessary GPU work and preserves
+the rendered AI footage already selected.
+
+A first switch into AI-only mode still regenerates all scenes, even when
+stock or user-uploaded clips are present. Missing files, incomplete scene
+sets, mismatched source metadata, or invalidated visuals trigger a fresh
+AI-only generation run. This is a source-file existence check and metadata
+validation, not proof that existing video files are decodable. Full
+end-to-end rendering and Windows hardware acceptance testing remain
+outstanding.
