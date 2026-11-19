@@ -127,6 +127,24 @@ class RenderBridgeTests(unittest.TestCase):
         source.unlink()
         self.assertEqual(self.client.get(base + "/scene_0/preview").status_code, 404)
 
+    def test_scene_footage_rejects_symlinked_files_and_unexpected_extensions(self):
+        root = render._root(self.pid) / "visuals"
+        root.mkdir(parents=True, exist_ok=True)
+        elsewhere = Path(self.tmp.name) / "private.mp4"
+        elsewhere.write_bytes(b"private fixture" * 100)
+        linked = root / ("clip_" + "d" * 32 + ".mp4")
+        try:
+            linked.symlink_to(elsewhere)
+        except (OSError, NotImplementedError):
+            self.skipTest("Filesystem does not permit symlink creation.")
+        with self.assertRaises(render.ProjectError):
+            render._file_for_slot(self.pid, linked.name)
+        other = root / ("clip_" + "e" * 32 + ".txt")
+        other.write_bytes(b"not video" * 200)
+        with self.assertRaises(render.ProjectError):
+            render._file_for_slot(self.pid, other.name)
+        self.assertEqual(elsewhere.read_bytes(), b"private fixture" * 100)
+
     def test_scene_preview_rejects_unsafe_saved_filename(self):
         base = f"/api/creator/projects/{self.pid}/visuals/scene_0/preview"
         db.execute("UPDATE creator_stages SET artifact_json=? WHERE project_id=? "
