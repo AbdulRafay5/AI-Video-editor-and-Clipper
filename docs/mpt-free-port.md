@@ -213,6 +213,22 @@ length unchanged. Existing clipper APIs, stored clip projects and their
 render paths are unaffected. Frame crop is centre-aligned; custom pan and
 per-scene crop-position keyframes remain future work.
 
+## Manual scene-by-scene footage reuse
+
+The Advanced video editing panel includes **manual scene footage assignment**
+for opening, every scene and closing. Select a source slot to use a clip already
+saved in the same project; sources can be reused in multiple destinations. A
+blank/default selection leaves the existing script/reverse/shuffle rule intact.
+Manual overrides take precedence over that global order choice.
+
+Only validated project scene identifiers are accepted. No arbitrary filesystem
+paths are used and no generated footage is deleted or rewritten. The final
+render is invalidated when the mapping changes, while narrated speech,
+captions, and source media are preserved. Each scene keeps its original spoken
+audio and duration. A manual source needs its footage saved before rendering.
+Stale scene IDs are ignored after a script changes; review mappings after
+adding or removing scenes.
+
 ## Voice and soundtrack mix controls
 
 Creator Studio's **Advanced video editing** panel now exposes separate saved
