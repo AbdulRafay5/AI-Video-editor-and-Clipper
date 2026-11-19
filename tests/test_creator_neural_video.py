@@ -47,6 +47,16 @@ class NeuralVideoTests(unittest.TestCase):
         with self.assertRaises(model.VideoGenerationError):
             model.prompt_for("scene_90", SCRIPT)
 
+    def test_low_memory_preset_and_subject_consistency(self):
+        self.assertEqual(model.DEFAULT_FRAMES, 17)
+        self.assertEqual(model.DEFAULT_STEPS, 20)
+        self.assertEqual(model.FPS, 8)
+        topic = "Nami with long orange hair dances on a beach"
+        prompt = model.prompt_for("scene_0", SCRIPT, topic)
+        self.assertIn(topic, prompt)
+        self.assertIn("deer running", prompt)
+        self.assertLessEqual(len(prompt), model.MAX_PROMPT)
+
     def test_consent_invalid_and_dependencies_missing(self):
         self.assertEqual(self.client.post(self.url+"/generate", json={}).status_code,400)
         self.assertEqual(self.client.post(self.url+"/generate",
@@ -107,6 +117,7 @@ class NeuralVideoTests(unittest.TestCase):
         state=self.client.get(self.url).get_json()
         self.assertEqual(state["status"],"done",state)
         self.assertEqual(len(prompts),3)
+        self.assertTrue(all("The forest at sunrise" in prompt for prompt in prompts))
         visual=self.client.get(f"/api/creator/projects/{self.pid}/visuals").get_json()
         self.assertEqual(len(visual["clips"]),3)
         for slot,name in visual["clips"].items():
