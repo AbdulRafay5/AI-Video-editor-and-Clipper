@@ -158,6 +158,28 @@ class CreatorBatchTests(unittest.TestCase):
         self.assertEqual(self.client.post(
             f"/api/creator/batches/{bid}/retry").status_code, 202)
 
+    def test_blocked_automation_does_not_release_busy_stage_worker(self):
+        response = self.client.post("/api/creator/batches", json=self.payload)
+        bid = response.get_json()["batch"]["id"]
+        item = response.get_json()["batch"]["items"][0]
+        pid = item["project_id"]
+        db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (pid,))
+        sleeps = [0]
+        def finish_stage(seconds):
+            sleeps[0] += 1
+            db.execute("UPDATE creator_projects SET status='narration_ready' "
+                       "WHERE id=?", (pid,))
+        with patch.object(batch.auto, "status", return_value={
+                "status": "blocked", "report": {"error": "Render timed out"}}), \
+             patch.object(batch.time, "sleep", side_effect=finish_stage):
+            result, exceeded = batch._wait_for_auto(bid, pid)
+        self.assertEqual(result["status"], "blocked")
+        self.assertFalse(exceeded)
+        self.assertGreaterEqual(sleeps[0], 1)
+        self.assertEqual(self.client.get(f"/api/creator/batches/{bid}")
+                         .get_json()["batch"]["status"], "paused")
+        self.assertFalse(batch._claim_item(bid, item["id"]))
+
     def test_worker_finishes_before_timeout_without_pausing(self):
         response = self.client.post("/api/creator/batches", json=self.payload)
         bid = response.get_json()["batch"]["id"]
