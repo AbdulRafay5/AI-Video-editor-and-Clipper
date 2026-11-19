@@ -64,3 +64,24 @@ and Microsoft's service availability/terms.
 
 The feature makes no paid calls. All generated scenes still require
 visuals, captions, music and final rendering before they become a video.
+
+## Your own recorded narration (offline)
+
+Creator Studio also accepts custom, user-owned WAV recordings. Save the script first,
+then use **Or upload your own recorded voice** in the narration section.
+
+Supply one WAV file for each script part in order: hook, every scene, and
+closing. Each file must be at most 25 MB; total upload is limited to 150 MB.
+FFmpeg converts the recordings to mono 22,050 Hz PCM and joins them into a
+single WAV. The project stores per-scene audio and measured durations in the
+same format used by synthetic narration. No TTS engine, account or paid service
+is required for this mode.
+
+A successful upload replaces the project's active narration and invalidates
+existing captions and final render. The original script and visual assets remain
+unchanged. Upload failures preserve the previously active narration. For
+accurate word-by-word captions, run the optional local caption alignment stage
+after importing the recording.
+
+Only upload voices you recorded yourself or have permission to use. This
+feature **imports recordings**; it does not train, imitate, or clone voices.
