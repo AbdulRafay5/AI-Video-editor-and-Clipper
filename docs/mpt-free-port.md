@@ -245,6 +245,22 @@ content-and-setting keyed cache files. Invalid speeds, unsupported framing
 modes, and non-existent scene slots are rejected. A setting change invalidates
 the final render, but preserves other production stages.
 
+## Per-scene crop focal points
+
+Creator Studio now offers independent horizontal (left/centre/right) and
+vertical (top/centre/bottom) crop focus controls for each scene, including
+the opening and closing. Positions are normalized to 0.0–1.0 and used by
+the local FFmpeg crop expression when **Crop to fill** is active. This is a
+static focal point per scene, not animated pan/keyframing or subject tracking.
+Letterbox mode does not crop and therefore ignores the focal-point setting.
+
+The existing centre-crop defaults and unmodified-source fast path remain
+unchanged. Non-default focal points prepare a cached, immutable video
+intermediate. Different focal points have different cache identities.
+Saving effects invalidates only the final render, not narration, captions
+or original footage. The FFmpeg smoke tests compare real left/right results
+without requiring GPU model inference.
+
 ## Manual scene-by-scene footage reuse
 
 The Advanced video editing panel includes **manual scene footage assignment**
