@@ -49,6 +49,25 @@ class CreatorWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         return response.get_json()["project"]["id"]
 
+    def test_setup_diagnostics_check_prerequisites_without_model_execution(self):
+        from clipper import local_imagegen, local_musicgen, local_text_to_video
+        with patch.object(creator.shutil, "which", side_effect=lambda x: "/bin/" + x if x=="ffmpeg" else None), \
+             patch.object(creator.llm, "status", return_value={
+                 "running": True, "installed": True, "model": "qwen3:4b",
+                 "message": "Local model ready"}), \
+             patch.object(local_imagegen, "dependencies_ready", return_value=True), \
+             patch.object(local_musicgen, "dependencies_ready", return_value=False), \
+             patch.object(local_text_to_video, "dependencies_ready", return_value=False):
+            response = self.client.get("/api/creator/diagnostics")
+        self.assertEqual(response.status_code, 200)
+        data=response.get_json()
+        self.assertFalse(data["ready_for_render"])
+        self.assertTrue(data["ready_for_ai_script"])
+        self.assertTrue(data["optional"]["ai_images"])
+        self.assertFalse(data["optional"]["musicgen"])
+        self.assertFalse(data["optional"]["neural_video"])
+        self.assertIn("not validated", data["note"])
+
     def test_project_persists_stages(self):
         pid = self.create()
         project = self.client.get(f"/api/creator/projects/{pid}").get_json()["project"]
