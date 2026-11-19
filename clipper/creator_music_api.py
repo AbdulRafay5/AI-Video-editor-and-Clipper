@@ -97,7 +97,7 @@ def apply_music(pid, source, mode):
             conn.execute("UPDATE creator_stages SET status='done', artifact_json=?, error=NULL, "
                          "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='music'",
                          (json.dumps({"filename": name, "duration": duration, "mode": mode}), pid))
-             creator.invalidate_render(conn, pid)
+            creator.invalidate_render(conn, pid)
         return {"filename": name, "duration": duration, "mode": mode}
 
 
@@ -134,7 +134,7 @@ def generate(pid):
                              "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='music'",
                              (json.dumps({"filename": file.name, "duration": duration,
                                           "mode": "generated-" + mood}), pid))
-                 creator.invalidate_render(conn, pid)
+                creator.invalidate_render(conn, pid)
         return jsonify(ok=True, mode="generated-" + mood, duration=duration), 201
     except Exception:
         file.unlink(missing_ok=True)
