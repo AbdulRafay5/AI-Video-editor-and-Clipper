@@ -213,7 +213,7 @@ def generate_narration(pid):
                                "WHERE id=?", (pid,)).fetchone()
         if not project:
             return jsonify(error="Project not found."), 404
-        if project["status"] in ("generating_narration", "generating_script", "rendering", "sourcing_visuals", "aligning_captions", "generating_music", "generating_images"):
+        if project["status"] in ("generating_narration", "generating_script", "rendering", "sourcing_visuals", "aligning_captions", "generating_music", "generating_images", "generating_video"):
             return jsonify(error="Wait until the current generation finishes."), 409
         if not project["script_json"]:
             return jsonify(error="Create or save a script before generating narration."), 409
@@ -258,7 +258,7 @@ _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _MAX_TOTAL_BYTES = 150 * 1024 * 1024
 _BUSY_STATES = ("generating_narration", "generating_script", "rendering",
                 "sourcing_visuals", "aligning_captions", "generating_music",
-                "generating_images")
+                "generating_images", "generating_video")
 
 
 @bp.post("/api/creator/projects/<int:pid>/narration/upload")
