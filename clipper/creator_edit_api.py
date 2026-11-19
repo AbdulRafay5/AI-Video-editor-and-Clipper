@@ -133,6 +133,70 @@ def footage_mapping(slots, pid, order):
     return dict(zip(slots, inputs))
 
 
+def scene_assignments(pid, slots):
+    """Return manual overrides, ignoring stale slot IDs after script edits."""
+    row = db.query_one(
+        "SELECT mapping_json FROM creator_scene_assignments WHERE project_id=?", (pid,))
+    saved = json.loads(row["mapping_json"]) if row else {}
+    if not isinstance(saved, dict):
+        return {}
+    return {target: source for target, source in saved.items()
+            if target in slots and source in slots and isinstance(source, str)}
+
+
+@bp.get("/api/creator/projects/<int:pid>/edit/scene-assignments")
+def get_scene_assignments(pid):
+    project = db.query_one("SELECT script_json FROM creator_projects WHERE id=?", (pid,))
+    if not project:
+        return jsonify(error="Project not found."), 404
+    if not project["script_json"]:
+        return jsonify(error="Create a script before assigning scene footage."), 409
+    from . import creator_render_api as creator
+    slots = creator._slots(json.loads(project["script_json"]))
+    return jsonify(slots=slots, assignments=scene_assignments(pid, slots))
+
+
+@bp.put("/api/creator/projects/<int:pid>/edit/scene-assignments")
+def set_scene_assignments(pid):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {"assignments"}:
+        return jsonify(error="Provide a scene-to-footage assignment object."), 400
+    assignments = data["assignments"]
+    if not isinstance(assignments, dict):
+        return jsonify(error="Assignments must be an object."), 400
+    from . import creator_render_api as creator
+    with creator._upload_lock:
+        with db.get_db() as conn:
+            project = conn.execute(
+                "SELECT script_json, status FROM creator_projects WHERE id=?", (pid,)).fetchone()
+            if not project:
+                return jsonify(error="Project not found."), 404
+            if project["status"] in creator.BUSY:
+                return jsonify(error="Finish the active generation stage first."), 409
+            if not project["script_json"]:
+                return jsonify(error="Create a script first."), 409
+            slots = creator._slots(json.loads(project["script_json"]))
+            if any(not isinstance(target, str) or target not in slots
+                   or not isinstance(source, str) or source not in slots
+                   for target, source in assignments.items()):
+                return jsonify(error="Scene assignments must use existing project slots."), 400
+            cleaned = {k: v for k, v in assignments.items() if k != v}
+            previous = conn.execute(
+                "SELECT mapping_json FROM creator_scene_assignments "
+                "WHERE project_id=?", (pid,)).fetchone()
+            old = json.loads(previous["mapping_json"]) if previous else {}
+            changed = old != cleaned
+            conn.execute(
+                "INSERT INTO creator_scene_assignments(project_id,mapping_json) VALUES (?,?) "
+                "ON CONFLICT(project_id) DO UPDATE SET mapping_json=excluded.mapping_json,"
+                "updated_at=CURRENT_TIMESTAMP", (pid, json.dumps(cleaned, sort_keys=True)))
+            if changed:
+                conn.execute(
+                    "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
+                    "WHERE project_id=? AND stage='render'", (pid,))
+    return jsonify(assignments=cleaned, changed=changed)
+
+
 def prepare_footage(pid, source, slot, current):
     """Return a cached, safe FFmpeg-prepared clip for local rendering.
 
