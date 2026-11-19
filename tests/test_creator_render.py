@@ -74,6 +74,24 @@ class RenderBridgeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Upload", response.get_json()["error"])
 
+    def test_render_executor_shutdown_restores_project_state(self):
+        revision = "a" * 32
+        with patch.object(render, "_manifest", return_value={"scenes": []}), \
+             patch.object(render, "_engine") as engine, \
+             patch.object(render._executor, "submit",
+                          side_effect=RuntimeError("executor shutting down")):
+            engine.return_value.create_revision.return_value = {
+                "revision_id": revision}
+            response = self.client.post(
+                f"/api/creator/projects/{self.pid}/render")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(render._project(self.pid)["status"], "script_ready")
+        stage = db.query_one(
+            "SELECT status, artifact_json FROM creator_stages "
+            "WHERE project_id=? AND stage='render'", (self.pid,))
+        self.assertEqual(stage["status"], "failed")
+        self.assertIsNone(stage["artifact_json"])
+
     def test_music_removal_invalidates_completed_video_status(self):
         self._add_narration()
         db.execute("UPDATE creator_projects SET status='render_ready' WHERE id=?",
