@@ -74,6 +74,24 @@ class RenderBridgeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Upload", response.get_json()["error"])
 
+    def test_music_removal_invalidates_completed_video_status(self):
+        self._add_narration()
+        db.execute("UPDATE creator_projects SET status='render_ready' WHERE id=?",
+                   (self.pid,))
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='render'",
+                   (json.dumps({"revision_id": "a" * 32}), self.pid))
+        response = self.client.delete(f"/api/creator/projects/{self.pid}/music")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(db.query_one(
+            "SELECT status FROM creator_projects WHERE id=?", (self.pid,))["status"],
+            "narration_ready")
+        row = db.query_one(
+            "SELECT status,artifact_json FROM creator_stages "
+            "WHERE project_id=? AND stage='render'", (self.pid,))
+        self.assertEqual(row["status"], "pending")
+        self.assertIsNone(row["artifact_json"])
+
     def test_unknown_upload_slot_rejected(self):
         response = self.client.post(f"/api/creator/projects/{self.pid}/visuals/scene_99",
                                     data={"video": (io.BytesIO(b"test"), "video.mp4")})
