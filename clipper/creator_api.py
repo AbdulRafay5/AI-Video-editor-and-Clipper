@@ -13,6 +13,29 @@ bp = Blueprint("creator", __name__)
 log = logging.getLogger("clipper.creator")
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="creator")
 STAGES = ("script", "narration", "visuals", "captions", "music", "render")
+
+@bp.get("/api/creator/diagnostics")
+def creator_diagnostics():
+    """Local-only, read-only prerequisites; no downloads or model inference."""
+    from . import local_imagegen, local_musicgen, local_text_to_video
+    ffmpeg = bool(shutil.which("ffmpeg"))
+    ffprobe = bool(shutil.which("ffprobe"))
+    ollama = llm.status()
+    images = local_imagegen.dependencies_ready()
+    music = local_musicgen.dependencies_ready()
+    neural_video = local_text_to_video.dependencies_ready()
+    return jsonify(
+        ffmpeg=ffmpeg, ffprobe=ffprobe,
+        ollama={"running": ollama["running"], "installed": ollama["installed"],
+                "model": ollama["model"], "message": ollama["message"]},
+        optional={"ai_images": images, "musicgen": music,
+                  "neural_video": neural_video},
+        ready_for_render=ffmpeg and ffprobe,
+        ready_for_ai_script=ollama["running"] and ollama["installed"],
+        note="Dependency checks only; model files and GPU inference are not validated."
+    )
+
+
 SCRIPT_SCHEMA = {
     "type": "object",
     "properties": {
