@@ -950,6 +950,63 @@
         openProject(project.id);
       }catch(err){say(err.message);saveEdit.disabled=false;}
     };
+    const assignmentPanel=document.createElement("section");
+    assignmentPanel.className="card";
+    const assignmentTitle=document.createElement("h4");
+    assignmentTitle.textContent="Manual scene footage assignment";
+    const assignmentHint=document.createElement("p");
+    assignmentHint.className="muted";
+    assignmentHint.textContent="Reuse a saved scene's footage for any other scene. This changes visuals only; narration and captions stay in script order.";
+    const assignmentRows=document.createElement("div");
+    const assignmentSave=document.createElement("button");
+    assignmentSave.type="button";
+    assignmentSave.className="secondary";
+    assignmentSave.textContent="Save scene assignments";
+    const assignmentStatus=document.createElement("p");
+    assignmentStatus.className="muted";
+    assignmentPanel.append(assignmentTitle,assignmentHint,assignmentRows,assignmentSave,assignmentStatus);
+    visualBox.append(assignmentPanel);
+    const assignmentSlots=["hook",...script.scenes.map((_,i)=>"scene_"+i),"closing"];
+    const assignmentSelects={};
+    const assignmentName=slot=>slot==="hook"?"Opening":slot==="closing"?"Ending":
+      "Scene "+(Number(slot.split("_")[1])+1);
+    for(const target of assignmentSlots){
+      const label=document.createElement("label");
+      label.textContent=assignmentName(target)+" footage source ";
+      const select=document.createElement("select");
+      const selfOption=document.createElement("option");
+      selfOption.value="";selfOption.textContent="Default assignment";
+      select.append(selfOption);
+      for(const source of assignmentSlots){
+        const option=document.createElement("option");
+        option.value=source;
+        option.textContent=assignmentName(source);
+        select.append(option);
+      }
+      assignmentSelects[target]=select;
+      label.append(select);
+      assignmentRows.append(label);
+    }
+    request("GET","/api/creator/projects/"+project.id+"/edit/scene-assignments")
+      .then(({assignments})=>{
+        if(selected!==project.id)return;
+        for(const [target,select] of Object.entries(assignmentSelects)){
+          select.value=assignments[target]||"";
+        }
+      }).catch(err=>{if(selected===project.id)assignmentStatus.textContent=err.message;});
+    assignmentSave.onclick=async()=>{
+      assignmentSave.disabled=true;
+      try{
+        const assignments={};
+        for(const [target,select] of Object.entries(assignmentSelects)){
+          if(select.value) assignments[target]=select.value;
+        }
+        await request("PUT","/api/creator/projects/"+project.id+"/edit/scene-assignments",
+          {assignments});
+        say("Scene footage assignments saved. Narration and subtitles are unchanged.");
+        await openProject(project.id);
+      }catch(err){assignmentStatus.textContent=err.message;assignmentSave.disabled=false;}
+    };
     const renderButton = document.createElement("button");
     renderButton.type = "button";
     renderButton.textContent = "Render complete video";
