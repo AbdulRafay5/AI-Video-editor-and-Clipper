@@ -323,9 +323,16 @@ class CreatorEditingTests(unittest.TestCase):
                    (json.dumps({"run_id":run_id,"segments":[
                        {"file":f"part_{i:02d}.wav","duration":1,"text":"words"}
                        for i in range(3)]}),self.pid))
+        def inspect_manifest():
+            # This test checks assignment/settings, not FFmpeg decoding.
+            # Mock footage preparation because the saved MP4 fixtures are
+            # deliberately placeholder bytes, not valid video containers.
+            with patch.object(edit, "prepare_footage",
+                              side_effect=lambda pid, source, slot, current: source):
+                return render._manifest(self.pid, render._project(self.pid))
         new={"format":"landscape","fit":"cover","speed":1,"order":"reverse"}
         self.client.put(self.endpoint,json=new)
-        spec=render._manifest(self.pid,render._project(self.pid))
+        spec=inspect_manifest()
         self.assertEqual((spec["settings"]["width"],spec["settings"]["height"]),(1280,720))
         self.assertTrue(spec["scenes"][0]["footage"].endswith("clip_closing.mp4"))
         self.assertTrue(spec["scenes"][0]["audio"].endswith("part_00.wav"))
@@ -333,13 +340,13 @@ class CreatorEditingTests(unittest.TestCase):
         self.assertEqual(spec["settings"]["bgm_volume"], 0.15)
         adjusted={**new,"narration_volume":1.5,"bgm_volume":0.4}
         self.client.put(self.endpoint,json=adjusted)
-        spec=render._manifest(self.pid,render._project(self.pid))
+        spec=inspect_manifest()
         self.assertEqual(spec["settings"]["narration_volume"], 1.5)
         self.assertEqual(spec["settings"]["bgm_volume"], 0.4)
         manual=self.client.put(f"/api/creator/projects/{self.pid}/edit/scene-assignments",
                                json={"assignments":{"scene_0":"hook"}})
         self.assertEqual(manual.status_code,200, manual.get_json())
-        remapped=render._manifest(self.pid,render._project(self.pid))
+        remapped=inspect_manifest()
         self.assertTrue(remapped["scenes"][1]["footage"].endswith("clip_hook.mp4"))
         self.assertTrue(remapped["scenes"][1]["audio"].endswith("part_01.wav"))
         scene_endpoint=f"/api/creator/projects/{self.pid}/edit/scene-effects"
