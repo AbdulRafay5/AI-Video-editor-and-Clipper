@@ -71,6 +71,22 @@ loggers and multi-provider request code. The existing clipper search is reused
 without changing its routes or API responses. The 946-line revision renderer
 remains the direct upstream code copy.
 
+## Smarter free B-roll selection (metadata, not image recognition)
+
+Creator Studio now scores candidate clips deterministically by portrait aspect,
+minimum usable portrait-HD resolution, and whether their duration is long enough
+for a typical scene. It prefers suitable moderate-size HD renditions over
+large landscape or tiny preview clips. Download verification failure now
+tries a different stock result rather than stopping after the first match.
+
+Chosen provider asset IDs and safe source URLs are recorded in the existing
+visual-stage metadata, allowing later sourcing jobs to avoid reusing previously
+selected clips within the project. Existing manually selected clips are never
+replaced. The selector does **not** inspect frames, understand video semantics,
+or guarantee scene relevance or licensing: it is a more robust metadata ranking
+and retry strategy, not a computer-vision quality model. It never calls a
+paid provider or downloads content without approval.
+
 ## Creator Studio captions and finishing
 
 The immutable upstream MoneyPrinterTurbo revision renderer is still responsible
