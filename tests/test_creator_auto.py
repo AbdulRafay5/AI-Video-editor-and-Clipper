@@ -126,6 +126,50 @@ class AutomaticCreatorTests(unittest.TestCase):
         response = self.client.post(self.endpoint + "/start", json={})
         self.assertEqual(response.status_code, 409)
 
+    def test_ai_retry_reuses_existing_complete_ai_scenes(self):
+        self._add_prepared_narration_and_footage()
+        from clipper import creator_auto_api as automation
+        visuals = db.query_one(
+            "SELECT artifact_json FROM creator_stages WHERE project_id=? AND stage='visuals'",
+            (self.pid,))
+        artifact = json.loads(visuals["artifact_json"])
+        slots = tuple(artifact["clips"])
+        artifact["sources"] = {
+            slot: {"provider": "local-sd-turbo"} for slot in slots}
+        db.execute(
+            "UPDATE creator_stages SET artifact_json=? WHERE project_id=? AND stage='visuals'",
+            (json.dumps(artifact), self.pid))
+        self.assertTrue(automation._reusable_ai_scenes(self.pid, slots))
+        with patch.object(automation, "_invoke") as invoke, \
+             patch.object(automation, "_wait_idle"), \
+             patch.object(render, "_music", return_value=None):
+            # Missing neural music dependencies stop the job at music;
+            # image generation must not be invoked during the retry.
+            from clipper import local_musicgen
+            with patch.object(local_musicgen, "dependencies_ready", return_value=False):
+                status = self._start_and_run({
+                    "visual_mode": "ai", "music": "neural"})
+        self.assertEqual(status["status"], "blocked", status)
+        self.assertEqual(status["step"], "music")
+        self.assertFalse(any("/images/fill" in str(call) for call in invoke.call_args_list))
+        self.assertTrue(automation._reusable_ai_scenes(self.pid, slots))
+
+    def test_ai_retry_does_not_reuse_missing_or_manual_footage(self):
+        self._add_prepared_narration_and_footage()
+        slots = ("hook", "scene_0", "closing")
+        self.assertFalse(auto._reusable_ai_scenes(self.pid, slots))
+        row = db.query_one("SELECT artifact_json FROM creator_stages "
+                           "WHERE project_id=? AND stage='visuals'", (self.pid,))
+        artifact = json.loads(row["artifact_json"])
+        artifact["sources"] = {slot: {"provider": "local-sd-turbo"} for slot in slots}
+        db.execute("UPDATE creator_stages SET artifact_json=? "
+                   "WHERE project_id=? AND stage='visuals'",
+                   (json.dumps(artifact), self.pid))
+        self.assertTrue(auto._reusable_ai_scenes(self.pid, slots))
+        footage = render._root(self.pid) / "visuals" / artifact["clips"]["hook"]
+        footage.unlink()
+        self.assertFalse(auto._reusable_ai_scenes(self.pid, slots))
+
     def test_true_video_mode_rejects_stock_and_still_images(self):
         self.assertEqual(auto.validate({"visual_mode": "neural_video"})["visual_mode"],
                          "neural_video")
