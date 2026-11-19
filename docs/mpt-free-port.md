@@ -71,6 +71,22 @@ loggers and multi-provider request code. The existing clipper search is reused
 without changing its routes or API responses. The 946-line revision renderer
 remains the direct upstream code copy.
 
+## On-demand scene footage preview
+
+Each populated opening/scene/closing slot in Creator Studio now has an
+optional **Preview scene footage** player. A dedicated per-project route
+streams only the saved file assigned to that slot (MP4, MOV or MKV) and
+supports HTTP byte ranges for browser seeking. It does not accept a caller
+filename or arbitrary filesystem path; missing clips and stale scene slots
+return 404.
+
+The player can seek to the saved scene **Clip in** position and pause/reset
+at **Clip out**. It shows source footage, not the composited render: crop,
+speed, transitions, captions, narration and music require a rendered export
+for an accurate final preview. Some MOV/MKV codecs are unsupported by browsers
+even though the local FFmpeg renderer can process them. Previews are loaded
+only when opened, and closing them releases the player source.
+
 ## Review and reject stock B-roll
 
 Each auto-sourced footage slot now offers **Reject this stock clip**.
