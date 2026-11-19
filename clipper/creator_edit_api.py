@@ -36,6 +36,7 @@ DEFAULTS = {
     "order": "script",
     "narration_volume": 1.0,
     "bgm_volume": 0.15,
+    "music_ducking": False,
 }
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -69,6 +70,8 @@ def validate(value):
             or not math.isfinite(bgm_volume)
             or not 0.0 <= bgm_volume <= 1.0):
         raise EditError("Background music volume must be 0–100%.")
+    if type(value["music_ducking"]) is not bool:
+        raise EditError("Automatic music ducking must be enabled or disabled.")
     return {**value, "speed": float(speed),
             "narration_volume": float(narration_volume),
             "bgm_volume": float(bgm_volume)}
