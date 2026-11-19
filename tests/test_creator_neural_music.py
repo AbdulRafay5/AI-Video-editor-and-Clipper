@@ -200,7 +200,7 @@ class NeuralApiTests(unittest.TestCase):
         self.assertEqual(creator._project(self.pid)["status"], "generating_music")
         self.assertEqual(self.client.get(self.prefix).get_json()["status"], "running")
         with patch.object(musicgen, "generate", side_effect=self._fake_neural):
-            neural._generate(self.pid, submit.call_args.args[2])
+            neural._generate(self.pid, submit.call_args.args[3])
         status = self.client.get(self.prefix).get_json()
         self.assertEqual(status["status"], "done")
         self.assertEqual(status["report"]["duration"], 6.0)
