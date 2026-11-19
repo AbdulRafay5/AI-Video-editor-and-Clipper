@@ -1113,7 +1113,7 @@
     effectsTitle.textContent="Per-scene footage effects";
     const effectsHint=document.createElement("p");
     effectsHint.className="muted";
-    effectsHint.textContent="Override speed, framing and crop focal point for each scene. Crop anchors apply to Crop to fill. Audio and subtitle timing remain unchanged.";
+    effectsHint.textContent="Override footage speed, framing, crop focus, and in/out points for each scene. Trimming changes only visual footage; narration and subtitle timing stay unchanged.";
     effectsPanel.append(effectsTitle,effectsHint);
     const effectsRows={};
     const effectsSlots=["hook",...script.scenes.map((_,i)=>"scene_"+i),"closing"];
@@ -1159,9 +1159,21 @@
         option.value=value;option.textContent=name;cropYSelect.append(option);
       }
       cropYLabel.append(cropYSelect);
-      wrap.append(label,speedLabel,fitLabel,cropXLabel,cropYLabel);
+      const trimStartLabel=document.createElement("label");
+      trimStartLabel.textContent=" Clip in (seconds) ";
+      const trimStartInput=document.createElement("input");
+      trimStartInput.type="number";trimStartInput.min="0";trimStartInput.max="3600";
+      trimStartInput.step="0.1";trimStartInput.placeholder="Beginning";
+      trimStartLabel.append(trimStartInput);
+      const trimEndLabel=document.createElement("label");
+      trimEndLabel.textContent=" Clip out (seconds) ";
+      const trimEndInput=document.createElement("input");
+      trimEndInput.type="number";trimEndInput.min="0";trimEndInput.max="3600";
+      trimEndInput.step="0.1";trimEndInput.placeholder="End of clip";
+      trimEndLabel.append(trimEndInput);
+      wrap.append(label,speedLabel,fitLabel,cropXLabel,cropYLabel,trimStartLabel,trimEndLabel);
       effectsPanel.append(wrap);
-      effectsRows[slot]={speedSelect,fitSelect,cropXSelect,cropYSelect};
+      effectsRows[slot]={speedSelect,fitSelect,cropXSelect,cropYSelect,trimStartInput,trimEndInput};
     }
     const effectsSave=document.createElement("button");
     effectsSave.type="button";effectsSave.className="secondary";
@@ -1178,6 +1190,8 @@
           fields.fitSelect.value=effects[slot]?.fit||"";
           fields.cropXSelect.value=effects[slot]?.crop_x==null?"":String(effects[slot].crop_x);
           fields.cropYSelect.value=effects[slot]?.crop_y==null?"":String(effects[slot].crop_y);
+          fields.trimStartInput.value=effects[slot]?.trim_start==null?"":String(effects[slot].trim_start);
+          fields.trimEndInput.value=effects[slot]?.trim_end==null?"":String(effects[slot].trim_end);
         }
       }).catch(err=>{if(selected===project.id)effectsStatus.textContent=err.message;});
     effectsSave.onclick=async()=>{
@@ -1190,6 +1204,8 @@
           if(fields.fitSelect.value) override.fit=fields.fitSelect.value;
           if(fields.cropXSelect.value!=="") override.crop_x=Number(fields.cropXSelect.value);
           if(fields.cropYSelect.value!=="") override.crop_y=Number(fields.cropYSelect.value);
+          if(fields.trimStartInput.value!=="") override.trim_start=Number(fields.trimStartInput.value);
+          if(fields.trimEndInput.value!=="") override.trim_end=Number(fields.trimEndInput.value);
           if(Object.keys(override).length) effects[slot]=override;
         }
         await request("PUT","/api/creator/projects/"+project.id+"/edit/scene-effects",{effects});
