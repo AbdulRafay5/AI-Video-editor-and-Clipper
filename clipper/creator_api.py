@@ -188,6 +188,10 @@ def generate_script(pid):
     if not (readiness["running"] and readiness["installed"]):
         return jsonify(error=readiness["message"]), 503
     with db.get_db() as conn:
+        previous = conn.execute(
+            "SELECT status, script_json FROM creator_projects WHERE id=?", (pid,)
+        ).fetchone()
+        previous_status = previous["status"] if previous else "draft"
         cur = conn.execute(
             "UPDATE creator_projects SET status='generating_script', error=NULL, "
             "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('generating_script','generating_narration','rendering','sourcing_visuals','aligning_captions','generating_music','generating_images','generating_video')", (pid,))
@@ -202,20 +206,16 @@ def generate_script(pid):
         # last saved script, not a permanently busy phantom job.
         message = "Script worker unavailable; restart the application."
         with db.get_db() as conn:
-            has_script = conn.execute(
-                "SELECT script_json FROM creator_projects WHERE id=?", (pid,)
-            ).fetchone()
-            ready = "script_ready" if has_script and has_script["script_json"] else "draft"
             conn.execute(
                 "UPDATE creator_projects SET status=?, error=?, "
                 "updated_at=CURRENT_TIMESTAMP "
                 "WHERE id=? AND status='generating_script'",
-                (ready, message, pid))
+                (previous_status, message, pid))
             conn.execute(
                 "UPDATE creator_stages SET status=?, error=?, "
                 "updated_at=CURRENT_TIMESTAMP "
                 "WHERE project_id=? AND stage='script' AND status='running'",
-                ("done" if ready == "script_ready" else "failed",
+                ("done" if previous and previous["script_json"] else "failed",
                  message, pid))
         return jsonify(error=message), 503
     return jsonify(ok=True, status="generating_script"), 202
