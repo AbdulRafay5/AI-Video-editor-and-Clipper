@@ -261,6 +261,7 @@ def upload_narration(pid):
 
     run_id = uuid.uuid4().hex
     folder = _root(pid) / run_id
+    committed = False
     try:
         folder.mkdir(parents=True, exist_ok=False)
         wavs = []
