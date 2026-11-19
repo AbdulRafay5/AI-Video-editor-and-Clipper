@@ -79,6 +79,43 @@ class RenderBridgeTests(unittest.TestCase):
                                     data={"video": (io.BytesIO(b"test"), "video.mp4")})
         self.assertEqual(response.status_code, 404)
 
+    def test_scene_preview_requires_saved_project_media(self):
+        base = f"/api/creator/projects/{self.pid}/visuals"
+        self.assertEqual(self.client.get(base + "/scene_0/preview").status_code, 404)
+        self.assertEqual(self.client.get(base + "/scene_99/preview").status_code, 404)
+        self.assertEqual(self.client.get(
+            "/api/creator/projects/999999/visuals/scene_0/preview").status_code, 404)
+        self.assertEqual(self.client.get(base + "/../preview").status_code, 404)
+
+    def test_scene_preview_streams_assigned_media_and_supports_ranges(self):
+        base = f"/api/creator/projects/{self.pid}/visuals"
+        folder = render._root(self.pid) / "visuals"
+        folder.mkdir(parents=True, exist_ok=True)
+        name = "clip_" + "c" * 32 + ".mp4"
+        source = folder / name
+        payload = b"test-saved-scene-footage" * 100
+        source.write_bytes(payload)
+        db.execute("UPDATE creator_stages SET artifact_json=? WHERE project_id=? "
+                   "AND stage='visuals'", (json.dumps({"clips": {"scene_0": name}}), self.pid))
+        full = self.client.get(base + "/scene_0/preview")
+        self.assertEqual(full.status_code, 200)
+        self.assertEqual(full.mimetype, "video/mp4")
+        self.assertNotIn("attachment", full.headers.get("Content-Disposition", ""))
+        self.assertEqual(full.data, payload)
+        ranged = self.client.get(base + "/scene_0/preview",
+                                 headers={"Range": "bytes=0-15"})
+        self.assertEqual(ranged.status_code, 206)
+        self.assertEqual(ranged.data, payload[:16])
+        source.unlink()
+        self.assertEqual(self.client.get(base + "/scene_0/preview").status_code, 404)
+
+    def test_scene_preview_rejects_unsafe_saved_filename(self):
+        base = f"/api/creator/projects/{self.pid}/visuals/scene_0/preview"
+        db.execute("UPDATE creator_stages SET artifact_json=? WHERE project_id=? "
+                   "AND stage='visuals'",
+                   (json.dumps({"clips": {"scene_0": "../private.mp4"}}), self.pid))
+        self.assertEqual(self.client.get(base).status_code, 404)
+
     def test_no_upload_during_active_render(self):
         db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
         response = self.client.post(f"/api/creator/projects/{self.pid}/visuals/hook",
