@@ -4,6 +4,7 @@ This module does not touch existing clipper projects/routes. Inputs are locally 
 video files and narration produced by Creator Studio. No provider or payment calls.
 """
 import json
+import math
 import logging
 import os
 import shutil
@@ -304,6 +305,55 @@ def _engine(pid):
     return VideoProject(_root(pid) / "mpt_render")
 
 
+def _verify_export(path, expected_seconds=None):
+    """Probe a completed export before announcing it as ready for review."""
+    path = Path(path)
+    if not path.is_file() or path.stat().st_size < 1024:
+        raise ProjectError("Final MP4 is missing or empty.")
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise ProjectError("FFprobe is required to verify the finished MP4.")
+    try:
+        result = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries",
+             "format=duration:stream=codec_type,codec_name,width,height",
+             "-of", "json", str(path)],
+            capture_output=True, text=True, timeout=45,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if result.returncode:
+            raise ProjectError("Finished MP4 could not be decoded.")
+        data = json.loads(result.stdout)
+        streams = data.get("streams")
+        if not isinstance(streams, list):
+            raise ValueError("No media streams")
+        video_streams = [stream for stream in streams
+                         if isinstance(stream, dict) and stream.get("codec_type") == "video"]
+        audio_streams = [stream for stream in streams
+                         if isinstance(stream, dict) and stream.get("codec_type") == "audio"]
+        if (not video_streams or not audio_streams
+                or any(type(s.get("width")) is not int or s["width"] < 1
+                       or type(s.get("height")) is not int or s["height"] < 1
+                       for s in video_streams)):
+            raise ValueError("Missing audio or usable video")
+        duration = float(data["format"]["duration"])
+        if not math.isfinite(duration) or not 0.1 < duration <= 3600:
+            raise ValueError("Invalid output duration")
+        if expected_seconds is not None:
+            expected = float(expected_seconds)
+            if not math.isfinite(expected) or expected <= 0:
+                raise ValueError("Invalid expected duration")
+            if abs(duration - expected) > max(1.0, expected * 0.10):
+                raise ValueError("Output duration differs from narration")
+        return {"duration": round(duration, 3),
+                "bytes": path.stat().st_size,
+                "width": video_streams[0]["width"],
+                "height": video_streams[0]["height"],
+                "has_audio": True}
+    except (OSError, subprocess.TimeoutExpired, KeyError, TypeError, ValueError,
+            json.JSONDecodeError) as exc:
+        raise ProjectError("Finished MP4 failed audio/video validation.") from exc
+
+
 def _run(pid, revision):
     try:
         result = _engine(pid).render(revision)
@@ -313,7 +363,12 @@ def _run(pid, revision):
         base = Path(result["export"]["path"])
         finished = creator_finish_api.finish_project(
             pid, base, revision, _root(pid) / "finished")
+        # Do not promote a corrupt or unexpectedly short MP4 to review.
+        narration = _narration(pid)
+        expected = sum(float(part["duration"]) for part in narration["segments"])
+        verified = _verify_export(finished, expected)
         safe = {
+            "verification": verified,
             "revision_id": revision, "state": result["state"],
             "promoted": result.get("promoted", False),
             "reused_stages": sum(v.get("reused", False) for v in result.get("stages", {}).values()),
@@ -380,6 +435,10 @@ def _finished_export(pid, artifact):
     if (parent not in finished.parents or finished.suffix.lower() != ".mp4"
             or not finished.is_file() or finished.stat().st_size < 1024):
         raise ProjectError("Final MP4 is missing or empty.")
+    verified = artifact.get("verification")
+    if isinstance(verified, dict):
+        if type(verified.get("bytes")) is not int or finished.stat().st_size != verified["bytes"]:
+            raise ProjectError("Final MP4 changed after verification.")
     return finished
 
 
