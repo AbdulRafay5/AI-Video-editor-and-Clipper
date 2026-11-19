@@ -111,6 +111,26 @@ class CreatorBatchTests(unittest.TestCase):
         self.assertEqual(self.client.post(
             f"/api/creator/batches/{bid}/retry", json={}).status_code, 202)
 
+    def test_claim_cannot_start_next_item_after_pause(self):
+        response = self.client.post("/api/creator/batches", json=self.payload)
+        bid = response.get_json()["batch"]["id"]
+        first, second = response.get_json()["batch"]["items"]
+        self.assertTrue(batch._claim_item(bid, first["id"]))
+        self.assertEqual(self.client.post(
+            f"/api/creator/batches/{bid}/pause").status_code, 200)
+        self.assertFalse(batch._claim_item(bid, second["id"]))
+        states = self.client.get(f"/api/creator/batches/{bid}").get_json()["batch"]
+        self.assertEqual([item["status"] for item in states["items"]],
+                         ["running", "queued"])
+        self.assertFalse(batch._claim_item(bid, first["id"]))
+
+    def test_claim_only_one_worker_can_claim_a_video(self):
+        response = self.client.post("/api/creator/batches", json=self.payload)
+        bid = response.get_json()["batch"]["id"]
+        first = response.get_json()["batch"]["items"][0]["id"]
+        self.assertTrue(batch._claim_item(bid, first))
+        self.assertFalse(batch._claim_item(bid, first))
+
     def test_app_restart_marks_running_batch_interrupted(self):
         response = self.client.post("/api/creator/batches", json=self.payload)
         bid = response.get_json()["batch"]["id"]
