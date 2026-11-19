@@ -361,7 +361,7 @@ class CreatorEditingTests(unittest.TestCase):
         self.assertFalse(spec["settings"]["music_ducking"])
         adjusted["music_ducking"] = True
         self.client.put(self.endpoint, json=adjusted)
-        spec = render._manifest(self.pid, render._project(self.pid))
+        spec = inspect_manifest()
         self.assertTrue(spec["settings"]["music_ducking"])
 
 
