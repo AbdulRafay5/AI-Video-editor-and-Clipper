@@ -152,7 +152,7 @@
     buttons.className = "actions";
     const generate = document.createElement("button");
     generate.type = "button";
-    generate.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
+    generate.disabled = busyProjectStates.has(project.status);
     generate.textContent = project.script ? "Regenerate script" : "Generate script with local Ollama";
     generate.onclick = async () => {
       if(project.script && !confirm("Replace the current script? Save a copy elsewhere if needed.")) return;
@@ -167,12 +167,14 @@
     const remove = document.createElement("button");
     remove.type = "button"; remove.className = "secondary";
     remove.textContent = "Delete project";
-    remove.disabled = ["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
+    remove.disabled = busyProjectStates.has(project.status);
     remove.onclick = async () => {
-      if(!confirm("Delete this original video project?")) return;
+      if(!confirm("Permanently delete this project and its locally stored media, including rendered videos? Export any MP4 you want to keep first.")) return;
       try {
-        await request("DELETE", "/api/creator/projects/" + project.id);
-        selected=null; stopPolling(); container.replaceChildren(); refreshList();
+        const result=await request("DELETE", "/api/creator/projects/" + project.id);
+        selected=null; stopPolling(); container.replaceChildren();
+        say(result.warning || "Project and local media deleted.");
+        refreshList();
       } catch(err) { say(err.message); }
     };
     buttons.append(remove);
