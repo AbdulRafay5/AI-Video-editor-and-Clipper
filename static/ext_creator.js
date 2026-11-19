@@ -1418,10 +1418,29 @@
           }
           wrapper.append(row);
         }
+        if(batch.status==="running"){
+          const pause=document.createElement("button");
+          pause.type="button";pause.className="secondary";
+          pause.textContent="Pause after current video";
+          pause.onclick=async()=>{
+            pause.disabled=true;
+            try{
+              await request("POST","/api/creator/batches/"+batch.id+"/pause",{});
+              await refreshBatches();
+            }catch(err){$("creator-batch-message").textContent=err.message;pause.disabled=false;}
+          };
+          wrapper.append(pause);
+        }
+        if(batch.status==="paused"){
+          const note=document.createElement("p");
+          note.className="muted";
+          note.textContent="Paused: the active video may still be finishing. Completed videos are preserved.";
+          wrapper.append(note);
+        }
         if(batch.status!=="running" && batch.items.some(x=>["blocked","interrupted","queued"].includes(x.status))){
           const retry=document.createElement("button");
           retry.type="button";retry.className="secondary";
-          retry.textContent="Retry incomplete videos";
+          retry.textContent=batch.status==="paused"?"Resume remaining videos":"Retry incomplete videos";
           retry.onclick=async()=>{
             retry.disabled=true;
             try{
