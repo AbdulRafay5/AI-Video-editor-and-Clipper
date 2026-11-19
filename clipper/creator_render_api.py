@@ -453,7 +453,10 @@ def _finished_export(pid, artifact):
         parent = (_root(pid) / "finished").resolve()
         finished = (parent / final_name).resolve()
     else:
-        info = _engine(pid).metadata()["last_successful_export"]
+        info = _engine(pid).metadata().get("last_successful_export")
+        if (not isinstance(info, dict) or not isinstance(revision, str)
+                or info.get("revision_id") != revision):
+            raise ProjectError("Saved render revision does not match the latest export.")
         parent = (_root(pid) / "mpt_render" / "artifacts").resolve()
         finished = Path(info["path"]).resolve()
     if (parent not in finished.parents or finished.suffix.lower() != ".mp4"
