@@ -25,7 +25,7 @@ def wav_bytes(seconds=0.25):
             audio.setnchannels(1)
             audio.setsampwidth(2)
             audio.setframerate(22050)
-            audio.writeframes(b"\\0\\0" * int(22050 * seconds))
+            audio.writeframes(b"\0\0" * int(22050 * seconds))
         return buffer.getvalue()
 
 
@@ -65,8 +65,8 @@ class RecordedNarrationTests(unittest.TestCase):
                                       (self.pid,))["status"], "script_ready")
 
     def test_success_creates_compatible_artifact_and_invalidates_downstream(self):
-        with patch.object(narration.shutil, "which", return_value="ffmpeg"), \\
-             patch.object(narration.subprocess, "run", side_effect=self.fake_ffmpeg), \\
+        with patch.object(narration.shutil, "which", return_value="ffmpeg"), \
+             patch.object(narration.subprocess, "run", side_effect=self.fake_ffmpeg), \
              patch.object(narration.local_narration, "combine", side_effect=self.fake_combine):
             result = self.client.post(self.url, data=self.payload())
         self.assertEqual(result.status_code, 201, result.get_json())
@@ -100,7 +100,7 @@ class RecordedNarrationTests(unittest.TestCase):
                    (json.dumps(original), self.pid))
         db.execute("UPDATE creator_projects SET status='narration_ready' WHERE id=?",
                    (self.pid,))
-        with patch.object(narration.shutil, "which", return_value="ffmpeg"), \\
+        with patch.object(narration.shutil, "which", return_value="ffmpeg"), \
              patch.object(narration.subprocess, "run", side_effect=self.fake_ffmpeg):
             response = self.client.post(self.url, data=self.payload(corrupt=1))
         self.assertEqual(response.status_code, 422)
