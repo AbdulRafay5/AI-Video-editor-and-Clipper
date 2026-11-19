@@ -140,9 +140,8 @@ class AutomaticCreatorTests(unittest.TestCase):
             "UPDATE creator_stages SET artifact_json=? WHERE project_id=? AND stage='visuals'",
             (json.dumps(artifact), self.pid))
         self.assertTrue(automation._reusable_ai_scenes(self.pid, slots))
-        with patch.object(automation, "_invoke") as invoke, \
-             patch.object(automation, "_wait_idle"), \
-             patch.object(render, "_music", return_value=None):
+        with patch.object(images._executor, "submit",
+                          side_effect=AssertionError("AI scenes were regenerated")) as submit:
             # Missing neural music dependencies stop the job at music;
             # image generation must not be invoked during the retry.
             from clipper import local_musicgen
@@ -151,7 +150,7 @@ class AutomaticCreatorTests(unittest.TestCase):
                     "visual_mode": "ai", "music": "neural"})
         self.assertEqual(status["status"], "blocked", status)
         self.assertEqual(status["step"], "music")
-        self.assertFalse(any("/images/fill" in str(call) for call in invoke.call_args_list))
+        submit.assert_not_called()
         self.assertTrue(automation._reusable_ai_scenes(self.pid, slots))
 
     def test_ai_retry_does_not_reuse_missing_or_manual_footage(self):
