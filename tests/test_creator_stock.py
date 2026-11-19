@@ -105,6 +105,58 @@ class CreatorStockTests(unittest.TestCase):
         self.assertEqual(status["status"], "done")
         self.assertIn("scene_0", status["report"]["applied"])
 
+    def test_candidate_rank_prefers_portrait_hd_and_deduplicates(self):
+        def candidate(name, width, height):
+            return {"download_url":f"https://cdn.pixabay.com/videos/{name}.mp4",
+                    "provider":"pixabay","id":name,"width":width,
+                    "height":height,"duration":8}
+        low=candidate("low",640,360)
+        portrait=candidate("portrait",720,1280)
+        larger=candidate("larger",1080,1920)
+        ranked=stock.rank_candidates([low,larger,portrait])
+        self.assertEqual([x["id"] for x in ranked],["portrait","larger","low"])
+        self.assertEqual(stock.rank_candidates([portrait],{portrait["download_url"]}),[])
+
+    def test_failed_candidate_falls_back_to_other_stock_and_no_repeats(self):
+        def candidate(name):
+            return {"id":name,"duration":8,"width":720,"height":1280,
+                    "download_url":f"https://cdn.pixabay.com/videos/{name}.mp4",
+                    "source_page":"","creator":"","provider":"pixabay"}
+        candidates=[candidate(n) for n in ("broken","good","another")]
+        attempts=[]
+        def fake_download(url,path,provider="pixabay"):
+            attempts.append(url)
+            if "broken" in url:
+                raise ValueError("Failed verification")
+            path.write_bytes(b"fixture")
+        with patch.object(stock.providers,"configured",return_value=["pixabay"]), \
+             patch.object(stock.providers,"search",return_value=candidates), \
+             patch.object(stock,"_download",side_effect=fake_download):
+            stock._run(self.pid,["hook","scene_0"])
+        info=self.client.get(f"/api/creator/projects/{self.pid}/visuals").get_json()
+        ids={info["sources"][slot]["asset_id"] for slot in ("hook","scene_0")}
+        self.assertEqual(ids,{"good","another"})
+        self.assertGreaterEqual(len(attempts),3)
+
+    def test_asset_dedupe_persists_across_stock_jobs(self):
+        old={"clips":{"hook":"clip_manual.mp4"},
+             "sources":{"hook":{"provider":"pixabay","asset_id":"used",
+                       "download_url":"https://cdn.pixabay.com/videos/used.mp4"}}}
+        db.execute("UPDATE creator_stages SET artifact_json=? WHERE project_id=? "
+                   "AND stage='visuals'",(json.dumps(old),self.pid))
+        candidates=[{"id":name,"duration":8,"width":720,"height":1280,
+                     "download_url":f"https://cdn.pixabay.com/videos/{name}.mp4",
+                     "source_page":"","creator":"","provider":"pixabay"}
+                    for name in ("used","fresh")]
+        def fake_download(url,path,provider="pixabay"):
+            path.write_bytes(b"fixture")
+        with patch.object(stock.providers,"configured",return_value=["pixabay"]), \
+             patch.object(stock.providers,"search",return_value=candidates), \
+             patch.object(stock,"_download",side_effect=fake_download):
+            stock._run(self.pid,["scene_0"])
+        info=self.client.get(f"/api/creator/projects/{self.pid}/visuals").get_json()
+        self.assertEqual(info["sources"]["scene_0"]["asset_id"],"fresh")
+
     def test_failed_search_keeps_existing_visuals(self):
         with patch.object(stock.providers, "configured", return_value=["pixabay"]), \
              patch.object(stock.providers, "search", return_value=[]):
