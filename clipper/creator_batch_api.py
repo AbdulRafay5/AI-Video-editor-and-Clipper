@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, current_app, jsonify, request
 
-from . import creator_api, creator_auto_api as auto, db
+from . import creator_api, creator_auto_api as auto, creator_render_api as render, db
 
 bp = Blueprint("creator_batch", __name__)
 log = logging.getLogger("clipper.creator_batch")
@@ -72,10 +72,24 @@ def _wait_for_auto(batch_id, pid):
     """
     deadline = time.monotonic() + MAX_ITEM_SECONDS
     timed_out = False
+    stage_still_busy = False
     while True:
         state = auto.status(pid)
         if state["status"] in TERMINAL:
-            return state, timed_out
+            project = render._project(pid)
+            if not project or project["status"] not in render.BUSY:
+                return state, timed_out
+            # Automation can time out before an independent FFmpeg/model stage
+            # stops. Never allow the next batch item to overlap that worker.
+            if not stage_still_busy:
+                stage_still_busy = True
+                with _lock:
+                    db.execute(
+                        "UPDATE creator_batches SET status='paused',"
+                        "updated_at=CURRENT_TIMESTAMP "
+                        "WHERE id=? AND status='running'", (batch_id,))
+                log.warning("Batch %s paused because project %s still has an "
+                            "active generation stage", batch_id, pid)
         if not timed_out and time.monotonic() >= deadline:
             timed_out = True
             with _lock:
