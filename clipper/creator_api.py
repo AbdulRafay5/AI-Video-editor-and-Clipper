@@ -1,6 +1,9 @@
 """Creator Studio: persistent topic-to-script stage, entirely local with Ollama."""
 import json
 import logging
+import shutil
+
+import config
 from concurrent.futures import ThreadPoolExecutor
 from flask import Blueprint, jsonify, request
 
@@ -200,11 +203,35 @@ def save_script(pid):
 
 @bp.delete("/api/creator/projects/<int:pid>")
 def delete_creator_project(pid):
-    with db.get_db() as conn:
-        state = conn.execute("SELECT status FROM creator_projects WHERE id=?", (pid,)).fetchone()
-        if not state:
-            return jsonify(error="Project not found."), 404
-        if state["status"] in ("generating_script", "generating_narration", "rendering", "sourcing_visuals", "aligning_captions", "generating_music", "generating_images"):
-            return jsonify(error="Wait until script generation finishes."), 409
-        conn.execute("DELETE FROM creator_projects WHERE id=?", (pid,))
+    from . import creator_render_api as render
+    # Serialize against media upload, stock rejection and image replacement.
+    with render._upload_lock:
+        with db.get_db() as conn:
+            state = conn.execute("SELECT status FROM creator_projects WHERE id=?", (pid,)).fetchone()
+            if not state:
+                return jsonify(error="Project not found."), 404
+            if state["status"] in render.BUSY:
+                return jsonify(error="Finish the active Creator Studio stage first."), 409
+            active_auto = conn.execute(
+                "SELECT 1 FROM creator_auto_jobs WHERE project_id=? AND status='running'",
+                (pid,)).fetchone()
+            active_batch = conn.execute(
+                "SELECT 1 FROM creator_batch_items WHERE project_id=? "
+                "AND status IN ('queued','running') LIMIT 1", (pid,)).fetchone()
+            if active_auto or active_batch:
+                return jsonify(error="Finish or remove this project from its active batch first."), 409
+            conn.execute("DELETE FROM creator_projects WHERE id=?", (pid,))
+        # Never remove a path supplied by a client. Resolve a single known
+        # project directory below the configured Creator Studio data root.
+        parent = (config.DATA_DIR / "creator").resolve()
+        folder = parent / str(pid)
+        if folder.is_symlink():
+            log.warning("Not deleting symlinked Creator data folder for project %s", pid)
+            return jsonify(ok=True, warning="Project deleted; symlinked media folder was retained.")
+        try:
+            if folder.exists():
+                shutil.rmtree(folder)
+        except OSError:
+            log.exception("Couldn't delete Creator project media for %s", pid)
+            return jsonify(ok=True, warning="Project deleted, but local media cleanup failed.")
     return jsonify(ok=True)
