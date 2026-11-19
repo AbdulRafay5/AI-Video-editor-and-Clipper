@@ -98,6 +98,15 @@ class CreatorWorkflowTests(unittest.TestCase):
             400)
         self.assertIsNone(self.client.get(f"/api/creator/projects/{pid}").get_json()["project"]["script"])
 
+    def test_script_changes_blocked_during_neural_video_generation(self):
+        pid = self.create()
+        db.execute("UPDATE creator_projects SET status='generating_video' WHERE id=?",
+                   (pid,))
+        self.assertEqual(self.client.put(
+            f"/api/creator/projects/{pid}/script", json=EXAMPLE).status_code, 409)
+        self.assertEqual(self.client.post(
+            f"/api/creator/projects/{pid}/script/generate").status_code, 409)
+
     def test_script_queue_shutdown_preserves_saved_script(self):
         pid = self.create()
         self.client.put(f"/api/creator/projects/{pid}/script", json=EXAMPLE)
