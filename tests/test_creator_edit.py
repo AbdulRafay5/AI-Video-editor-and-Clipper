@@ -172,6 +172,44 @@ class CreatorEditingTests(unittest.TestCase):
         db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
         self.assertEqual(self.client.put(endpoint, json={"assignments":{}}).status_code,409)
 
+    def test_per_scene_effects_validate_preserve_audio_and_invalidate_render(self):
+        endpoint=f"/api/creator/projects/{self.pid}/edit/scene-effects"
+        empty=self.client.get(endpoint).get_json()
+        self.assertEqual(empty["effects"], {})
+        for bad in (
+            {"scene_9":{"speed":1.5}},
+            {"scene_0":{"speed":True}},
+            {"scene_0":{"speed":0.1}},
+            {"hook":{"fit":"zoom"}},
+            {"hook":{"command":"malicious"}},
+            {"scene_0":{}},
+        ):
+            self.assertEqual(self.client.put(endpoint,json={"effects":bad}).status_code,
+                             400, bad)
+        db.execute("UPDATE creator_stages SET status='done' WHERE project_id=? "
+                   "AND stage IN ('narration','visuals','render')", (self.pid,))
+        chosen={"hook":{"speed":0.75},"scene_0":{"fit":"contain","speed":1.5}}
+        response=self.client.put(endpoint,json={"effects":chosen})
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertTrue(response.get_json()["changed"])
+        self.assertEqual(self.client.get(endpoint).get_json()["effects"],chosen)
+        stages={row["stage"]:row["status"] for row in db.query(
+            "SELECT stage,status FROM creator_stages WHERE project_id=?", (self.pid,))}
+        self.assertEqual(stages["render"],"pending")
+        self.assertEqual(stages["narration"],"done")
+        self.assertEqual(stages["visuals"],"done")
+        self.assertFalse(self.client.put(endpoint,json={"effects":chosen}).get_json()["changed"])
+        db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
+        self.assertEqual(self.client.put(endpoint,json={"effects":{}}).status_code,409)
+
+    def test_scene_effects_ignore_stale_slots(self):
+        endpoint=f"/api/creator/projects/{self.pid}/edit/scene-effects"
+        self.client.put(endpoint,json={"effects":{"scene_0":{"speed":2.0}}})
+        db.execute("UPDATE creator_projects SET script_json=? WHERE id=?",
+                   (json.dumps({"title":"Updated","hook":"Intro","scenes":[],
+                                "closing":"Outro"}),self.pid))
+        self.assertEqual(self.client.get(endpoint).get_json()["effects"],{})
+
     def test_default_footage_processing_is_identity(self):
         source = Path(self.temp.name) / "source.mp4"
         source.write_bytes(b"original")
@@ -215,6 +253,15 @@ class CreatorEditingTests(unittest.TestCase):
         remapped=render._manifest(self.pid,render._project(self.pid))
         self.assertTrue(remapped["scenes"][1]["footage"].endswith("clip_hook.mp4"))
         self.assertTrue(remapped["scenes"][1]["audio"].endswith("part_01.wav"))
+        scene_endpoint=f"/api/creator/projects/{self.pid}/edit/scene-effects"
+        response=self.client.put(scene_endpoint,json={
+            "effects":{"scene_0":{"speed":1.5,"fit":"contain"}}})
+        self.assertEqual(response.status_code,200,response.get_json())
+        with patch.object(edit, "prepare_footage", side_effect=lambda pid,source,slot,current: source) as prep:
+            render._manifest(self.pid,render._project(self.pid))
+        self.assertEqual(prep.call_args_list[1].args[3]["speed"],1.5)
+        self.assertEqual(prep.call_args_list[1].args[3]["fit"],"contain")
+        self.assertEqual(prep.call_args_list[0].args[3]["speed"],1.0)
         self.assertFalse(spec["settings"]["music_ducking"])
         adjusted["music_ducking"] = True
         self.client.put(self.endpoint, json=adjusted)
