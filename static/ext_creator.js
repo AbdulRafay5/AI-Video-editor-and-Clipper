@@ -180,6 +180,17 @@
     const voiceSelect = document.createElement("select");
     voiceSelect.setAttribute("aria-label", "Narration voice");
     voiceLabel.append(voiceSelect);
+    const paceLabel=document.createElement("label");
+    paceLabel.textContent="Speaking pace ";
+    const paceSelect=document.createElement("select");
+    paceSelect.setAttribute("aria-label","Narration speaking pace");
+    for(const [value,label] of [["0.8","Relaxed 0.8×"],["1","Normal 1×"],
+                                ["1.2","Energetic 1.2×"]]){
+      const option=document.createElement("option");
+      option.value=value;option.textContent=label;paceSelect.append(option);
+    }
+    paceSelect.value="1";
+    paceLabel.append(paceSelect);
     const voiceButton = document.createElement("button");
     voiceButton.type = "button";
     voiceButton.disabled = true;
@@ -198,6 +209,8 @@
       if(chosen.voices.includes(chosen.voice)) voiceSelect.value = chosen.voice;
       voiceInfo.textContent = chosen.description + (chosen.online
         ? " · Free, Internet connection required" : " · Free, runs locally");
+      paceSelect.disabled=!["kokoro","edge"].includes(chosen.name);
+      if(paceSelect.disabled)paceSelect.value="1";
       const voiceBusy=["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images"].includes(project.status);
       voiceButton.disabled=!chosen.ready||voiceBusy;
       previewVoiceButton.disabled=!chosen.ready||voiceBusy;
@@ -221,7 +234,8 @@
       try{
         const response=await fetch("/api/creator/narration/preview",{
           method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({engine:engineSelect.value,voice:voiceSelect.value})
+          body:JSON.stringify({engine:engineSelect.value,voice:voiceSelect.value,
+            pace:Number(paceSelect.value)})
         });
         if(!response.ok){
           const error=await response.json().catch(()=>({}));
@@ -244,7 +258,7 @@
     previewVoiceButton.onclick=previewCurrentVoice;
     const audioList = document.createElement("div");
     voiceBox.append(voiceTitle, voiceInfo, engineLabel, voiceLabel, previewVoiceButton,
-      previewVoiceAudio,previewVoiceNote,voiceButton,audioList);
+      previewVoiceAudio,previewVoiceNote,paceLabel,voiceButton,audioList);
     container.append(voiceBox);
     request("GET", "/api/creator/narration/capabilities").then(data => {
       if(selected !== project.id) return;
@@ -263,7 +277,8 @@
       if(project.stages.narration?.status === "done" && !confirm("Regenerate the current narration from the saved script?")) return;
       voiceButton.disabled = true;
       try {
-        const selection = {engine:engineSelect.value, voice:voiceSelect.value};
+        const selection = {engine:engineSelect.value,voice:voiceSelect.value,
+          pace:Number(paceSelect.value)};
         await request("POST", "/api/creator/projects/" + project.id + "/narration/generate", selection);
         say("Generating narration with " + selection.engine + "...");
         openProject(project.id);
