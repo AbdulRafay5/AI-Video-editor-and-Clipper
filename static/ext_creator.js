@@ -1433,13 +1433,18 @@
     finally { create.disabled=false; }
   };
   let batchPollTimer=null;
+  let batchRefreshSequence=0;
   async function refreshBatches(){
+    const sequence=++batchRefreshSequence;
     const list=$("creator-batches");
     try{
       const result=await request("GET","/api/creator/batches");
+      const details=await Promise.all(result.batches.map(
+        summary=>request("GET","/api/creator/batches/"+summary.id)));
+      // A newer refresh may have completed while these requests were pending.
+      if(sequence!==batchRefreshSequence)return;
       list.replaceChildren();
-      for(const summary of result.batches){
-        const {batch}=await request("GET","/api/creator/batches/"+summary.id);
+      for(const {batch} of details){
         const wrapper=document.createElement("section");
         wrapper.className="card";
         const heading=document.createElement("strong");
@@ -1506,10 +1511,14 @@
       // Keep progress visible without manual refresh, but avoid polling
       // indefinitely once every batch has finished.
       if(batchPollTimer){clearTimeout(batchPollTimer);batchPollTimer=null;}
-      if(result.batches.some(b=>b.status==="running")){
+      if(details.some(({batch})=>batch.status==="running" ||
+          (batch.status==="paused" && batch.items.some(item=>item.status==="running")))){
         batchPollTimer=setTimeout(()=>{batchPollTimer=null;refreshBatches();},5000);
       }
-    }catch(err){$("creator-batch-message").textContent=err.message;}
+    }catch(err){
+      if(sequence===batchRefreshSequence)
+        $("creator-batch-message").textContent=err.message;
+    }
   }
   $("creator-batch-start").onclick=async()=>{
     const button=$("creator-batch-start");
