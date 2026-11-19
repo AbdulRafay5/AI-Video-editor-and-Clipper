@@ -177,6 +177,7 @@ class RenderBridgeTests(unittest.TestCase):
         self.assertEqual([s["id"] for s in manifest["scenes"]], ["hook", "scene_0", "closing"])
 
     def test_interrupted_render_recovers_after_restart(self):
+        self._add_narration()
         db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
         db.execute("UPDATE creator_stages SET status='running' "
                    "WHERE project_id=? AND stage='render'", (self.pid,))
