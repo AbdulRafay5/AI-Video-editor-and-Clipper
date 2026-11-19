@@ -49,6 +49,25 @@ def _visuals(pid):
     return json.loads(row["artifact_json"]).get("clips", {})
 
 
+def invalidate_render(conn, pid):
+    """Invalidate the current MP4 and restore project readiness consistently.
+
+    Run inside the same DB transaction as the upstream edit. Immutable files
+    remain on disk but are not advertised as the current export.
+    """
+    conn.execute(
+        "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL, "
+        "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='render'",
+        (pid,))
+    conn.execute(
+        "UPDATE creator_projects SET status=CASE "
+        "WHEN EXISTS(SELECT 1 FROM creator_stages WHERE project_id=? "
+        "AND stage='narration' AND status='done') THEN 'narration_ready' "
+        "WHEN script_json IS NOT NULL THEN 'script_ready' ELSE 'draft' END, "
+        "error=NULL,updated_at=CURRENT_TIMESTAMP "
+        "WHERE id=? AND status='render_ready'", (pid, pid))
+
+
 def _narration(pid):
     row = db.query_one("SELECT status, artifact_json FROM creator_stages "
                        "WHERE project_id=? AND stage='narration'", (pid,))
