@@ -151,8 +151,16 @@ def _generate(pid, options):
     except Exception as exc:
         output.unlink(missing_ok=True)
         log.exception("MusicGen failed for Creator project %s", pid)
-        message = (str(exc)[:260] if isinstance(exc, musicgen.MusicGenError)
-                   else "MusicGen failed. Check the local logs.")
+        # Surface a useful, bounded diagnostic in the local UI instead of
+        # hiding every unexpected exception behind a generic MusicGen failure.
+        # Full tracebacks remain in the private application log.
+        if isinstance(exc, musicgen.MusicGenError):
+            message = str(exc)[:260]
+        elif isinstance(exc, (RuntimeError, ImportError, OSError, ValueError, MemoryError)):
+            message = ("MusicGen " + type(exc).__name__ +
+                       ": " + str(exc).replace("\\n", " ")[:190])[:260]
+        else:
+            message = "MusicGen failed unexpectedly. Check the local application log."
         with creator._upload_lock:
             with db.get_db() as conn:
                 conn.execute(
