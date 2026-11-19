@@ -458,7 +458,25 @@ def start_render(pid):
         conn.execute("UPDATE creator_stages SET status='running', error=NULL, "
                      "artifact_json=?, updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='render'",
                      (json.dumps({"revision_id": spec["revision_id"]}), pid))
-    _executor.submit(_run, pid, spec["revision_id"])
+    try:
+        _executor.submit(_run, pid, spec["revision_id"])
+    except RuntimeError:
+        # A stopped executor cannot perform the promised render. Do not leave
+        # the project in a permanently busy state or advertise a current MP4.
+        with db.get_db() as conn:
+            ready = ("narration_ready" if conn.execute(
+                "SELECT 1 FROM creator_stages WHERE project_id=? "
+                "AND stage='narration' AND status='done'", (pid,)).fetchone()
+                else "script_ready")
+            conn.execute(
+                "UPDATE creator_projects SET status=?,error=?,"
+                "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='rendering'",
+                (ready, "Render worker unavailable; restart the application.", pid))
+            conn.execute(
+                "UPDATE creator_stages SET status='failed',artifact_json=NULL,error=?,"
+                "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='render'",
+                ("Render worker unavailable; restart the application.", pid))
+        return jsonify(error="Render worker unavailable; restart the application."), 503
     return jsonify(ok=True, revision_id=spec["revision_id"], status="rendering"), 202
 
 
