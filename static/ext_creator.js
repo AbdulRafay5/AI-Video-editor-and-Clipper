@@ -90,31 +90,47 @@
     label.append(input);
     return [label, input];
   }
+  let projectPollGeneration=0;
+  const busyProjectStates=new Set([
+    "generating_script","generating_narration","rendering",
+    "sourcing_visuals","aligning_captions","generating_music",
+    "generating_images","generating_video"
+  ]);
   function stopPolling() {
-    if(polling) clearInterval(polling);
+    if(polling!==null)clearTimeout(polling);
     polling=null;
+    projectPollGeneration++;
   }
   async function openProject(id) {
     selected = id;
     stopPolling();
+    const generation=projectPollGeneration;
+    const active=()=>selected===id && generation===projectPollGeneration;
+    async function poll(){
+      if(!active())return;
+      try{
+        const {project}=await request("GET","/api/creator/projects/"+id);
+        if(!active())return;
+        if(!busyProjectStates.has(project.status)){
+          stopPolling();
+          renderProject(project);
+          refreshList();
+          return;
+        }
+        // One request at a time; setInterval used to overlap slow responses.
+        polling=setTimeout(poll,2500);
+      }catch(err){
+        if(!active())return;
+        say("Couldn't refresh project status: "+err.message);
+        polling=setTimeout(poll,5000);
+      }
+    }
     try {
       const {project} = await request("GET", "/api/creator/projects/" + id);
-      if(selected !== id) return;
+      if(!active())return;
       renderProject(project);
-      if(["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images","generating_video"].includes(project.status)) {
-        polling=setInterval(async () => {
-          if(selected !== id) return stopPolling();
-          try {
-            const {project:p} = await request("GET", "/api/creator/projects/" + id);
-            if(!["generating_script","generating_narration","rendering","sourcing_visuals","aligning_captions","generating_music","generating_images","generating_video"].includes(p.status)) {
-              stopPolling();
-              renderProject(p);
-              refreshList();
-            }
-          } catch (err) { stopPolling(); say(err.message); }
-        }, 2500);
-      }
-    } catch (err) { say(err.message); }
+      if(busyProjectStates.has(project.status))polling=setTimeout(poll,2500);
+    } catch (err) { if(active())say(err.message); }
   }
   function renderProject(project) {
     const container = $("creator-details");
