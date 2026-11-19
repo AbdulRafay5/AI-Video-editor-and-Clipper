@@ -355,6 +355,27 @@ def start_render(pid):
     return jsonify(ok=True, revision_id=spec["revision_id"], status="rendering"), 202
 
 
+def _finished_export(pid, artifact):
+    """Resolve only a server-generated MP4 inside the project's export folders."""
+    revision = artifact.get("revision_id")
+    final_name = artifact.get("final_name")
+    if final_name is not None:
+        if (not isinstance(revision, str) or len(revision) != 32
+                or any(c not in "0123456789abcdef" for c in revision)
+                or final_name != f"finished_{revision}.mp4"):
+            raise ProjectError("Invalid final export artifact.")
+        parent = (_root(pid) / "finished").resolve()
+        finished = (parent / final_name).resolve()
+    else:
+        info = _engine(pid).metadata()["last_successful_export"]
+        parent = (_root(pid) / "mpt_render" / "artifacts").resolve()
+        finished = Path(info["path"]).resolve()
+    if (parent not in finished.parents or finished.suffix.lower() != ".mp4"
+            or not finished.is_file() or finished.stat().st_size < 1024):
+        raise ProjectError("Final MP4 is missing or empty.")
+    return finished
+
+
 @bp.get("/api/creator/projects/<int:pid>/render")
 def render_status(pid):
     project = _project(pid)
@@ -372,9 +393,19 @@ def render_status(pid):
             stages = live.get("stages", {})
         except (ProjectError, OSError, ValueError, KeyError):
             pass
+    available = False
+    if state == "done":
+        try:
+            available = bool(_finished_export(pid, artifact))
+        except (ProjectError, OSError, KeyError, TypeError, ValueError):
+            pass
     return jsonify(status=state, error=row["error"] if row else None,
                    revision_id=revision, completed_stages=len(stages),
-                   ready=state=="done")
+                   ready=available, download_url=(
+                       f"/api/creator/projects/{pid}/render/file" if available else None),
+                   preview_url=(
+                       f"/api/creator/projects/{pid}/render/file?preview=1"
+                       if available else None))
 
 
 @bp.post("/api/creator/projects/<int:pid>/render/cancel")
@@ -407,27 +438,12 @@ def render_file(pid):
         return jsonify(error="Render a video first."), 409
     try:
         artifact = json.loads(row["artifact_json"]) if row["artifact_json"] else {}
-        final_name = artifact.get("final_name")
-        if final_name is not None:
-            revision = artifact.get("revision_id")
-            if (not isinstance(revision, str) or
-                    final_name != f"finished_{revision}.mp4" or
-                    not isinstance(revision, str) or len(revision) != 32 or
-                    any(c not in "0123456789abcdef" for c in revision)):
-                raise ProjectError("Invalid final export artifact.")
-            finished = (_root(pid) / "finished" / final_name).resolve()
-            if ((_root(pid) / "finished").resolve() not in finished.parents
-                    or not finished.is_file()):
-                raise ProjectError("Final video is missing.")
-            return send_file(finished, mimetype="video/mp4", as_attachment=True,
-                             download_name=f"creator_{pid}.mp4")
-        info = _engine(pid).metadata()["last_successful_export"]
-        # Use the immutable renderer's verified path, not a caller-selected filename.
-        file = Path(info["path"]).resolve()
-        parent = (_root(pid) / "mpt_render" / "artifacts").resolve()
-        if parent not in file.parents or file.suffix.lower() != ".mp4" or not file.is_file():
-            raise ProjectError("Export file is missing.")
-        return send_file(file, mimetype="video/mp4", as_attachment=True,
+        file = _finished_export(pid, artifact)
+        # Streaming inline allows browser playback, seeking and range requests;
+        # the default still returns an attachment for intentional downloads.
+        inline = request.args.get("preview") == "1"
+        return send_file(file, mimetype="video/mp4", conditional=True,
+                         as_attachment=not inline,
                          download_name=f"creator_{pid}.mp4")
-    except (ProjectError, OSError, KeyError, TypeError):
-        return jsonify(error="Export file unavailable."), 404
+    except (ProjectError, OSError, KeyError, TypeError, ValueError):
+        return jsonify(error="The final MP4 is unavailable. Re-render this project."), 404
