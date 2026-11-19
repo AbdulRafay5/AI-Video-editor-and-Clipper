@@ -110,13 +110,14 @@ def _to_wav(input_file: Path, output_file: Path):
         raise NeuralVoiceError("Could not decode speech audio: " + result.stderr[-220:])
 
 
-async def _edge_stream(text, voice, mp3):
+async def _edge_stream(text, voice, mp3, pace=1.0):
     """Capture both Edge audio and authentic word boundaries in 100-ns ticks."""
     import edge_tts
     word_events = []
     total = 0
+    rate = f"{round((pace-1.0)*100):+d}%"
     with mp3.open("wb") as sink:
-        async for event in edge_tts.Communicate(text, voice).stream():
+        async for event in edge_tts.Communicate(text, voice, rate=rate).stream():
             kind = event.get("type")
             if kind == "audio":
                 content = event.get("data")
@@ -144,6 +145,9 @@ def speak_neural(text: str, destination: Path, selected: dict):
     from .local_narration import wav_duration
     kind = selected["name"]
     voice = selected["voice"]
+    pace = selected.get("pace", 1.0)
+    if type(pace) not in (float, int) or pace not in (0.8, 1.0, 1.2):
+        raise NeuralVoiceError("Invalid narration pace.")
     valid = KOKORO_VOICES if kind == "kokoro" else EDGE_VOICES if kind == "edge" else ()
     if voice not in valid:
         raise NeuralVoiceError("Unsupported neural voice.")
@@ -155,7 +159,7 @@ def speak_neural(text: str, destination: Path, selected: dict):
             try:
                 content = _kokoro_request("/audio/speech", {
                     "model": "kokoro", "input": text, "voice": voice,
-                    "response_format": "mp3", "speed": 1.0,
+                    "response_format": "mp3", "speed": pace,
                 }, timeout=180)
             except (OSError, urllib.error.URLError, TimeoutError) as exc:
                 raise NeuralVoiceError("Cannot reach your local Kokoro server.") from exc
@@ -168,7 +172,7 @@ def speak_neural(text: str, destination: Path, selected: dict):
             except ImportError as exc:
                 raise NeuralVoiceError("Install edge-tts to use free online Edge voices.") from exc
             try:
-                words = asyncio.run(_edge_stream(text, voice, mp3))
+                words = asyncio.run(_edge_stream(text, voice, mp3, pace=pace))
                 if words:
                     destination.with_suffix(".words.json").write_text(
                         json.dumps(words, ensure_ascii=False), encoding="utf-8")
