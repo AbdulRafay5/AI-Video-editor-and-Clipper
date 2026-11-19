@@ -146,7 +146,10 @@ def generate(output, prompt, seconds, *, allow_download=False, sample_seconds=SA
     try:
         if torch.cuda.is_available():
             available, _ = torch.cuda.mem_get_info()
-            if available >= 4 * 1024 ** 3:
+            total = torch.cuda.get_device_properties(0).total_memory
+            # Avoid competing with CogVideoX/SD-Turbo on 6GB machines.
+            # MusicGen Small can run on CPU, albeit more slowly.
+            if available >= 8 * 1024 ** 3 and total >= 10 * 1024 ** 3:
                 device = "cuda"
         model = model.to(device).eval()
         inputs = processor(text=[prompt.strip()], padding=True, return_tensors="pt")
@@ -178,7 +181,7 @@ def generate(output, prompt, seconds, *, allow_download=False, sample_seconds=SA
             "sample_rate": sample_rate, "device": device,
             "model": MODEL_ID, "looped": seconds > sample_seconds,
         }
-    except (RuntimeError, ValueError, MemoryError) as exc:
+    except (RuntimeError, ValueError, MemoryError, OSError) as exc:
         if "out of memory" in str(exc).lower():
             raise MusicGenError(
                 "Not enough memory for MusicGen. Close GPU apps or use CPU mode."
