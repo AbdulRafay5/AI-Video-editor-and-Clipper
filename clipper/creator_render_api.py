@@ -130,7 +130,7 @@ def upload_visual(pid, slot):
                 sources.pop(slot, None)  # Manual replacement is not Pixabay footage.
                 conn.execute("UPDATE creator_stages SET artifact_json=?, status=?, error=NULL, "
                              "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='visuals'",
-                             (json.dumps({"clips": clips, "sources": sources}), stage, pid))
+                             (json.dumps({**artifact, "clips": clips, "sources": sources}), stage, pid))
                 conn.execute("UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
                              "WHERE project_id=? AND stage='render'", (pid,))
             # Do not remove files used by older immutable render revisions.
