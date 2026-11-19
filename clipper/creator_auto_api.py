@@ -139,6 +139,28 @@ def _wait_idle(pid, seconds=30):
     raise AutoError("Previous generation stage did not release the project lock.")
 
 
+def _reusable_ai_scenes(pid, slots):
+    """Reuse only complete AI-owned video selections from the current script."""
+    visual = _stage(pid, "visuals")
+    if not visual or visual["status"] != "done" or not visual["artifact_json"]:
+        return False
+    try:
+        artifact = json.loads(visual["artifact_json"])
+        clips = artifact.get("clips", {})
+        sources = artifact.get("sources", {})
+        if not isinstance(clips, dict) or not isinstance(sources, dict):
+            return False
+        return all(
+            isinstance(clips.get(slot), str)
+            and isinstance(sources.get(slot), dict)
+            and sources[slot].get("provider") == "local-sd-turbo"
+            and render._file_for_slot(pid, clips[slot]).is_file()
+            for slot in slots
+        )
+    except (ValueError, OSError, TypeError, KeyError, render.ProjectError):
+        return False
+
+
 def _automate(pid, options, flask_app=None):
     # In the running server, use the already initialised Flask app.
     # Importing "app" in a worker launched via python app.py would create a
@@ -213,28 +235,28 @@ def _automate(pid, options, flask_app=None):
                                "Neural video generation failed.")
                     raise AutoError(str(err)[:280])
         elif options.get("visual_mode") == "ai":
-            # Explicit AI mode regenerates *every* script slot, even if stock
-            # or manually uploaded footage already exists in this project.
-            # The image worker swaps references only after all scenes succeed.
-            _invoke(client, "POST", base + "/images/fill", {
-                "approve_model_download": options["approve_image_model_download"],
-                "replace_existing": True,
-            })
-            deadline = time.monotonic() + WAIT_SECONDS["footage"]
-            while time.monotonic() < deadline:
-                job = db.query_one(
-                    "SELECT status, report_json FROM creator_image_jobs WHERE project_id=?",
-                    (pid,))
-                if job and job["status"] in ("done", "blocked", "interrupted"):
-                    break
-                time.sleep(0.4)
-            else:
-                raise AutoError("AI-only scene generation timed out.")
-            if job["status"] != "done":
-                detail = json.loads(job["report_json"] or "{}")
-                error = next(iter(detail.get("errors", {}).values()),
-                             "AI-only scene generation failed.")
-                raise AutoError(str(error)[:280])
+            # Replace non-AI footage on the first AI run, but don't regenerate
+            # costly AI scenes when a later music/render stage is retried.
+            if not _reusable_ai_scenes(pid, slots):
+                _invoke(client, "POST", base + "/images/fill", {
+                    "approve_model_download": options["approve_image_model_download"],
+                    "replace_existing": True,
+                })
+                deadline = time.monotonic() + WAIT_SECONDS["footage"]
+                while time.monotonic() < deadline:
+                    job = db.query_one(
+                        "SELECT status, report_json FROM creator_image_jobs WHERE project_id=?",
+                        (pid,))
+                    if job and job["status"] in ("done", "blocked", "interrupted"):
+                        break
+                    time.sleep(0.4)
+                else:
+                    raise AutoError("AI-only scene generation timed out.")
+                if job["status"] != "done":
+                    detail = json.loads(job["report_json"] or "{}")
+                    error = next(iter(detail.get("errors", {}).values()),
+                                 "AI-only scene generation failed.")
+                    raise AutoError(str(error)[:280])
         else:
             if missing_slots() and options["approve_stock_download"]:
                 from . import creator_providers
