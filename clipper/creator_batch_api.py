@@ -90,7 +90,8 @@ def _run(batch_id, app):
             db.execute(
                 "UPDATE creator_batches SET status=CASE WHEN EXISTS("
                 "SELECT 1 FROM creator_batch_items WHERE batch_id=? AND status!='done'"
-                ") THEN 'blocked' ELSE 'done' END,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                ") THEN 'blocked' ELSE 'done' END,updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status='running'",
                 (batch_id, batch_id))
         except Exception:
             log.exception("Batch coordinator %s failed unexpectedly", batch_id)
@@ -152,6 +153,23 @@ def list_batches():
 def batch_status(batch_id):
     details = _details(batch_id)
     return jsonify(batch=details) if details else (jsonify(error="Batch not found."), 404)
+
+
+@bp.post("/api/creator/batches/<int:batch_id>/pause")
+def pause_batch(batch_id):
+    """Stop scheduling new videos; let the currently processing video finish."""
+    with _lock:
+        with db.get_db() as conn:
+            row = conn.execute("SELECT status FROM creator_batches WHERE id=?",
+                               (batch_id,)).fetchone()
+            if not row:
+                return jsonify(error="Batch not found."), 404
+            if row["status"] != "running":
+                return jsonify(error="Only an active batch can be paused."), 409
+            conn.execute(
+                "UPDATE creator_batches SET status='paused',updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status='running'", (batch_id,))
+    return jsonify(batch=_details(batch_id)), 200
 
 
 @bp.post("/api/creator/batches/<int:batch_id>/retry")
