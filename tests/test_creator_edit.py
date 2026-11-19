@@ -53,7 +53,8 @@ class CreatorEditingTests(unittest.TestCase):
         new = {"format": "landscape", "fit": "contain", "speed": 1.5, "order": "reverse"}
         response = self.client.put(self.endpoint, json=new)
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
-        self.assertEqual(self.client.get(self.endpoint).get_json()["options"], new)
+        self.assertEqual(self.client.get(self.endpoint).get_json()["options"],
+                         {**edit.DEFAULTS, **new})
         self.assertEqual(db.query_one("SELECT status FROM creator_stages WHERE project_id=? "
                                        "AND stage='render'",(self.pid,))["status"],"pending")
         self.assertEqual(db.query_one("SELECT status FROM creator_stages WHERE project_id=? "
@@ -71,6 +72,44 @@ class CreatorEditingTests(unittest.TestCase):
             self.assertEqual(self.client.put(self.endpoint, json=case).status_code,400)
         db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
         self.assertEqual(self.client.put(self.endpoint,json=edit.DEFAULTS).status_code,409)
+
+    def test_audio_mix_controls_are_bounded_and_invalidate_only_render(self):
+        for update in (
+            {"narration_volume": True},
+            {"narration_volume": -0.1},
+            {"narration_volume": 2.01},
+            {"bgm_volume": -0.1},
+            {"bgm_volume": 1.01},
+            {"bgm_volume": "0.15"},
+        ):
+            payload={**edit.DEFAULTS, **update}
+            response=self.client.put(self.endpoint, json=payload)
+            self.assertEqual(response.status_code, 400, payload)
+        db.execute("UPDATE creator_stages SET status='done' WHERE project_id=? "
+                   "AND stage IN ('narration','visuals','render')", (self.pid,))
+        payload={**edit.DEFAULTS,"narration_volume":1.25,"bgm_volume":0.05}
+        response=self.client.put(self.endpoint,json=payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["changed"])
+        saved=self.client.get(self.endpoint).get_json()["options"]
+        self.assertEqual(saved["narration_volume"],1.25)
+        self.assertEqual(saved["bgm_volume"],0.05)
+        self.assertEqual(db.query_one("SELECT status FROM creator_stages "
+            "WHERE project_id=? AND stage='render'", (self.pid,))["status"],"pending")
+        self.assertEqual(db.query_one("SELECT status FROM creator_stages "
+            "WHERE project_id=? AND stage='narration'", (self.pid,))["status"],"done")
+        self.assertEqual(db.query_one("SELECT status FROM creator_stages "
+            "WHERE project_id=? AND stage='visuals'", (self.pid,))["status"],"done")
+        # No spurious invalidation for an identical write.
+        response=self.client.put(self.endpoint,json=payload)
+        self.assertFalse(response.get_json()["changed"])
+
+    def test_legacy_four_field_settings_migrate_to_audio_defaults(self):
+        legacy={"format":"landscape","fit":"cover","speed":1.5,"order":"script"}
+        db.execute("INSERT INTO creator_edit_settings(project_id,options_json) "
+                   "VALUES (?,?)", (self.pid,json.dumps(legacy)))
+        saved=self.client.get(self.endpoint).get_json()["options"]
+        self.assertEqual(saved,{**edit.DEFAULTS, **legacy})
 
     def test_reordered_footage_does_not_change_voice_slot_order(self):
         slots = ["hook", "scene_0", "scene_1", "closing"]
@@ -111,6 +150,13 @@ class CreatorEditingTests(unittest.TestCase):
         self.assertEqual((spec["settings"]["width"],spec["settings"]["height"]),(1280,720))
         self.assertTrue(spec["scenes"][0]["footage"].endswith("clip_closing.mp4"))
         self.assertTrue(spec["scenes"][0]["audio"].endswith("part_00.wav"))
+        self.assertEqual(spec["settings"]["narration_volume"], 1.0)
+        self.assertEqual(spec["settings"]["bgm_volume"], 0.15)
+        adjusted={**new,"narration_volume":1.5,"bgm_volume":0.4}
+        self.client.put(self.endpoint,json=adjusted)
+        spec=render._manifest(self.pid,render._project(self.pid))
+        self.assertEqual(spec["settings"]["narration_volume"], 1.5)
+        self.assertEqual(spec["settings"]["bgm_volume"], 0.4)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),"FFmpeg unavailable")
