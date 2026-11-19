@@ -554,3 +554,17 @@ AI-only generation run. This is a source-file existence check and metadata
 validation, not proof that existing video files are decodable. Full
 end-to-end rendering and Windows hardware acceptance testing remain
 outstanding.
+
+## Render readiness after media and caption edits
+
+Creator Studio now uses a shared render-invalidation helper for footage
+upload/replacement, soundtrack upload/removal/generation/preset selection and
+caption finishing settings. These operations invalidate the prior completed
+render stage and reset an otherwise stale `render_ready` project status to
+`narration_ready` (or `script_ready` if narration is unavailable).
+
+The existing source footage, narration, cached immutable files and generated
+music are retained unless explicitly replaced or removed. A new export must
+be rendered before the project is marked ready again. New regression tests
+cover settings changes, generated soundtrack changes and music removal.
+Full CI and local Windows FFmpeg acceptance testing remain outstanding.
