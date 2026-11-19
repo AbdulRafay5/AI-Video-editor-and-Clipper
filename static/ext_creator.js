@@ -61,8 +61,12 @@
   const request = async (method, path, body) => {
     const r = await fetch(path, {method, headers: body===undefined ? {} : {"Content-Type":"application/json"},
       body: body===undefined ? undefined : JSON.stringify(body)});
-    const data = await r.json();
-    if(!r.ok) throw Error(data.error || "Request failed.");
+    // Flask may return HTML for an unexpected 500, and a proxy can return
+    // an empty body. Preserve the HTTP status instead of showing a JSON error.
+    const data = await r.json().catch(()=>null);
+    if(!r.ok) throw Error(data?.error || "Request failed (HTTP "+r.status+").");
+    if(!data || typeof data!=="object")
+      throw Error("The server returned an unexpected response (HTTP "+r.status+").");
     return data;
   };
   async function refreshList() {
