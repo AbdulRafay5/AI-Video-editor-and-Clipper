@@ -142,6 +142,45 @@ class RenderBridgeTests(unittest.TestCase):
         manifest = render._manifest(self.pid, render._project(self.pid))
         self.assertEqual(Path(manifest["bgm"]), music)
 
+    def test_verified_final_mp4_preview_and_download(self):
+        revision = "b" * 32
+        finished = render._root(self.pid) / "finished" / f"finished_{revision}.mp4"
+        finished.parent.mkdir(parents=True, exist_ok=True)
+        finished.write_bytes(b"not-real-mp4-but-safe-test" * 100)
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='render'",
+                   (json.dumps({"revision_id": revision, "final_name": finished.name}),
+                    self.pid))
+        endpoint = f"/api/creator/projects/{self.pid}/render"
+        status = self.client.get(endpoint).get_json()
+        self.assertTrue(status["ready"], status)
+        self.assertEqual(status["download_url"], endpoint + "/file")
+        download = self.client.get(endpoint + "/file")
+        self.assertEqual(download.status_code, 200)
+        self.assertIn("attachment", download.headers["Content-Disposition"])
+        download.close()
+        preview = self.client.get(endpoint + "/file?preview=1",
+                                  headers={"Range": "bytes=0-15"})
+        self.assertEqual(preview.status_code, 206)
+        self.assertNotIn("attachment", preview.headers.get("Content-Disposition", ""))
+        self.assertEqual(len(preview.data), 16)
+        preview.close()
+
+        finished.unlink()
+        missing = self.client.get(endpoint).get_json()
+        self.assertFalse(missing["ready"])
+        self.assertIsNone(missing["download_url"])
+        self.assertEqual(self.client.get(endpoint + "/file").status_code, 404)
+
+    def test_invalid_artifact_cannot_escape_export_folder(self):
+        db.execute("UPDATE creator_stages SET status='done',artifact_json=? "
+                   "WHERE project_id=? AND stage='render'",
+                   (json.dumps({"revision_id": "f" * 32,
+                                "final_name": "../secret.mp4"}), self.pid))
+        endpoint = f"/api/creator/projects/{self.pid}/render"
+        self.assertFalse(self.client.get(endpoint).get_json()["ready"])
+        self.assertEqual(self.client.get(endpoint + "/file?preview=1").status_code, 404)
+
     def test_cancel_requires_active_render(self):
         self.assertEqual(self.client.post(
             f"/api/creator/projects/{self.pid}/render/cancel").status_code, 409)
