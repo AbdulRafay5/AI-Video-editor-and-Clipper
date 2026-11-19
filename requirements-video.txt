@@ -9,3 +9,8 @@ safetensors>=0.4,<1
 pillow>=10,<13
 imageio>=2.34,<3
 imageio-ffmpeg>=0.5,<1
+# CogVideoX uses a T5 tokenizer; these are required for local model loading.
+sentencepiece>=0.2,<1
+protobuf>=4,<7
+# Avoid incompatible Hugging Face Hub major versions with this Diffusers stack.
+huggingface-hub>=0.25,<1
