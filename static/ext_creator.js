@@ -736,7 +736,7 @@
       stockApproval.hidden=ai||neural;
       autoImageDownloadLabel.hidden=!(ai||neural);
       visualModeNote.textContent=neural
-        ? "Genuine neural text-to-video: CogVideoX-2B generates 49 moving frames for each scene, locally. No Pexels. First model download is large; 6GB VRAM requires very slow CPU offloading and may fail."
+        ? "Genuine neural text-to-video: experimental 6GB preset produces 17 moving frames (~2 seconds) per scene; clips may be repeated to match narration. Quality may be poor, inference can be slow, and 6GB VRAM may still run out."
         : ai
           ? "No stock API calls. SD-Turbo creates fresh still images for every scene; FFmpeg adds camera motion. This is NOT neural text-to-video."
           : "Uses your configured Pexels, Pixabay or Coverr key to fetch stock video clips.";
