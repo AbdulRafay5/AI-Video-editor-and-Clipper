@@ -103,6 +103,43 @@ class NarrationTests(unittest.TestCase):
             self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT).status_code, 409)
         self.assertEqual(self.client.delete(f"/api/creator/projects/{self.pid}").status_code, 409)
 
+    def test_voice_preview_generates_wav_without_changing_project(self):
+        selected={"name":"test","voice":"test-voice","ready":True}
+        def fake_synthesize(text,path,engine):
+            self.assertIn("preview",text.lower())
+            self.assertEqual(engine["voice"],"test-voice")
+            return make_wav(path,0.25)
+        before=self.client.get(f"/api/creator/projects/{self.pid}/narration").get_json()
+        with patch.object(local_narration,"select_backend",return_value=selected), \
+             patch.object(local_narration,"synthesize",side_effect=fake_synthesize) as synth:
+            response=self.client.post("/api/creator/narration/preview",
+                                      json={"engine":"test","voice":"test-voice"})
+        self.assertEqual(response.status_code,200,response.get_data(as_text=True)[:250])
+        self.assertEqual(response.mimetype,"audio/wav")
+        self.assertTrue(response.data.startswith(b"RIFF"))
+        synth.assert_called_once()
+        self.assertEqual(self.client.get(
+            f"/api/creator/projects/{self.pid}/narration").get_json(),before)
+
+    def test_voice_preview_rejects_bad_selection_and_concurrency(self):
+        endpoint="/api/creator/narration/preview"
+        for payload in ({},{"engine":123,"voice":"test"},
+                        {"engine":"test","voice":"test","text":"arbitrary"},
+                        {"engine":"test","voice":None}):
+            self.assertEqual(self.client.post(endpoint,json=payload).status_code,400)
+        with patch.object(local_narration,"select_backend",
+                          side_effect=local_narration.NarrationError("Voice not available")):
+            self.assertEqual(self.client.post(endpoint,json={
+                "engine":"invalid","voice":"missing"}).status_code,400)
+        with patch.object(local_narration,"select_backend",
+                          return_value={"name":"test","voice":"test","ready":True}):
+            narration._preview_lock.acquire()
+            try:
+                self.assertEqual(self.client.post(endpoint,json={
+                    "engine":"test","voice":"test"}).status_code,409)
+            finally:
+                narration._preview_lock.release()
+
     def test_narration_restart_recovery(self):
         self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
         db.execute("UPDATE creator_projects SET status='generating_narration' WHERE id=?", (self.pid,))
