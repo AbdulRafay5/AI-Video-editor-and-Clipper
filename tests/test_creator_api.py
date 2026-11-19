@@ -28,12 +28,15 @@ class CreatorWorkflowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.patch_db = patch.object(db.config, "DB_PATH", Path(self.tmp.name) / "test.sqlite")
         self.patch_db.start()
+        self.patch_media = patch("config.DATA_DIR", Path(self.tmp.name))
+        self.patch_media.start()
         db.init_db()
         app = Flask(__name__)
         app.register_blueprint(creator.bp)
         self.client = app.test_client()
 
     def tearDown(self):
+        self.patch_media.stop()
         self.patch_db.stop()
         self.tmp.cleanup()
 
