@@ -198,6 +198,91 @@ def set_scene_assignments(pid):
     return jsonify(assignments=cleaned, changed=changed)
 
 
+def validate_scene_effects(effects, slots):
+    """Only allow conservative, independent video effects for project slots."""
+    if not isinstance(effects, dict):
+        raise EditError("Scene effects must be an object.")
+    if set(effects) - set(slots):
+        raise EditError("Effects reference a scene that does not exist.")
+    cleaned = {}
+    for slot, effect in effects.items():
+        if not isinstance(effect, dict) or not effect or set(effect) - {"speed", "fit"}:
+            raise EditError("Each scene effect must set speed, fit or both.")
+        item = {}
+        if "speed" in effect:
+            speed = effect["speed"]
+            if type(speed) not in (int, float) or not math.isfinite(speed) or not 0.5 <= speed <= 2.0:
+                raise EditError("Scene footage speed must be between 0.5x and 2x.")
+            item["speed"] = float(speed)
+        if "fit" in effect:
+            if effect["fit"] not in FITS:
+                raise EditError("Scene fitting must be cover or contain.")
+            item["fit"] = effect["fit"]
+        cleaned[slot] = item
+    return cleaned
+
+
+def scene_effects(pid, slots):
+    row = db.query_one("SELECT effects_json FROM creator_scene_effects WHERE project_id=?", (pid,))
+    if not row:
+        return {}
+    saved = json.loads(row["effects_json"])
+    if not isinstance(saved, dict):
+        return {}
+    # Retain valid current slots after the script has been edited.
+    return {slot: options for slot, options in saved.items()
+            if slot in slots and isinstance(options, dict)
+            and not (set(options) - {"speed", "fit"})}
+
+
+@bp.get("/api/creator/projects/<int:pid>/edit/scene-effects")
+def get_scene_effects(pid):
+    project = db.query_one("SELECT script_json FROM creator_projects WHERE id=?", (pid,))
+    if not project:
+        return jsonify(error="Project not found."), 404
+    if not project["script_json"]:
+        return jsonify(error="Create a script before editing scene footage."), 409
+    from . import creator_render_api as creator
+    slots = creator._slots(json.loads(project["script_json"]))
+    return jsonify(slots=slots, effects=scene_effects(pid, slots))
+
+
+@bp.put("/api/creator/projects/<int:pid>/edit/scene-effects")
+def set_scene_effects(pid):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {"effects"}:
+        return jsonify(error="Provide a scene effects object."), 400
+    from . import creator_render_api as creator
+    with creator._upload_lock:
+        with db.get_db() as conn:
+            project = conn.execute(
+                "SELECT script_json,status FROM creator_projects WHERE id=?", (pid,)).fetchone()
+            if not project:
+                return jsonify(error="Project not found."), 404
+            if project["status"] in creator.BUSY:
+                return jsonify(error="Finish the active generation stage first."), 409
+            if not project["script_json"]:
+                return jsonify(error="Create a script first."), 409
+            slots = creator._slots(json.loads(project["script_json"]))
+            try:
+                cleaned = validate_scene_effects(data["effects"], slots)
+            except (EditError, TypeError, ValueError) as exc:
+                return jsonify(error=str(exc)), 400
+            previous = conn.execute(
+                "SELECT effects_json FROM creator_scene_effects WHERE project_id=?", (pid,)).fetchone()
+            old = json.loads(previous["effects_json"]) if previous else {}
+            changed = old != cleaned
+            conn.execute(
+                "INSERT INTO creator_scene_effects(project_id,effects_json) VALUES (?,?) "
+                "ON CONFLICT(project_id) DO UPDATE SET effects_json=excluded.effects_json,"
+                "updated_at=CURRENT_TIMESTAMP", (pid, json.dumps(cleaned, sort_keys=True)))
+            if changed:
+                conn.execute(
+                    "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
+                    "WHERE project_id=? AND stage='render'", (pid,))
+    return jsonify(effects=cleaned, changed=changed)
+
+
 def prepare_footage(pid, source, slot, current):
     """Return a cached, safe FFmpeg-prepared clip for local rendering.
 
