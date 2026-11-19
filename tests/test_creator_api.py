@@ -107,6 +107,44 @@ class CreatorWorkflowTests(unittest.TestCase):
         self.assertEqual(project["status"], "failed")
         self.assertEqual(project["stages"]["script"]["status"], "failed")
 
+    def test_deleting_project_removes_only_its_media(self):
+        import config
+        pid = self.create()
+        parent = config.DATA_DIR / "creator"
+        root = parent / str(pid)
+        other = parent / "unrelated"
+        root.mkdir(parents=True)
+        other.mkdir(parents=True)
+        (root / "clip.mp4").write_bytes(b"source")
+        (other / "retain.mp4").write_bytes(b"unrelated")
+        response = self.client.delete(f"/api/creator/projects/{pid}")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertFalse(root.exists())
+        self.assertTrue((other / "retain.mp4").is_file())
+        self.assertIsNone(db.query_one(
+            "SELECT id FROM creator_projects WHERE id=?", (pid,)))
+
+    def test_cannot_delete_a_project_in_active_automation(self):
+        pid = self.create()
+        db.execute("INSERT INTO creator_auto_jobs(project_id,status,step) "
+                   "VALUES (?,'running','footage')", (pid,))
+        response = self.client.delete(f"/api/creator/projects/{pid}")
+        self.assertEqual(response.status_code, 409, response.get_json())
+        self.assertIsNotNone(db.query_one(
+            "SELECT id FROM creator_projects WHERE id=?", (pid,)))
+
+    def test_deletion_reports_local_cleanup_failure(self):
+        import config
+        pid = self.create()
+        root = config.DATA_DIR / "creator" / str(pid)
+        root.mkdir(parents=True)
+        with patch.object(creator.shutil, "rmtree", side_effect=OSError("access denied")):
+            response = self.client.delete(f"/api/creator/projects/{pid}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("cleanup failed", response.get_json()["warning"])
+        self.assertIsNone(db.query_one(
+            "SELECT id FROM creator_projects WHERE id=?", (pid,)))
+
     def test_deleting_project_removes_stage_rows(self):
         pid = self.create()
         self.assertEqual(self.client.delete(f"/api/creator/projects/{pid}").status_code, 200)
