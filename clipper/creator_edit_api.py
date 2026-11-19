@@ -116,10 +116,22 @@ def set_edit_options(pid):
                 "ON CONFLICT(project_id) DO UPDATE SET options_json=excluded.options_json, "
                 "updated_at=CURRENT_TIMESTAMP", (pid, json.dumps(new)))
             if changed:
-                conn.execute(
-                    "UPDATE creator_stages SET status='pending', artifact_json=NULL, error=NULL "
-                    "WHERE project_id=? AND stage='render'", (pid,))
+                _invalidate_render(conn, pid)
     return jsonify(options=new, changed=changed)
+
+
+def _invalidate_render(conn, pid):
+    conn.execute(
+        "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
+        "WHERE project_id=? AND stage='render'", (pid,))
+    # New edits invalidate the old export, but leave source media and narration intact.
+    conn.execute(
+        "UPDATE creator_projects SET status=CASE "
+        "WHEN EXISTS(SELECT 1 FROM creator_stages WHERE project_id=? "
+        "AND stage='narration' AND status='done') THEN 'narration_ready' "
+        "WHEN script_json IS NOT NULL THEN 'script_ready' ELSE 'draft' END,"
+        "error=NULL,updated_at=CURRENT_TIMESTAMP "
+        "WHERE id=? AND status='render_ready'", (pid, pid))
 
 
 def footage_mapping(slots, pid, order):
@@ -192,9 +204,7 @@ def set_scene_assignments(pid):
                 "ON CONFLICT(project_id) DO UPDATE SET mapping_json=excluded.mapping_json,"
                 "updated_at=CURRENT_TIMESTAMP", (pid, json.dumps(cleaned, sort_keys=True)))
             if changed:
-                conn.execute(
-                    "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
-                    "WHERE project_id=? AND stage='render'", (pid,))
+                _invalidate_render(conn, pid)
     return jsonify(assignments=cleaned, changed=changed)
 
 
@@ -292,9 +302,7 @@ def set_scene_effects(pid):
                 "ON CONFLICT(project_id) DO UPDATE SET effects_json=excluded.effects_json,"
                 "updated_at=CURRENT_TIMESTAMP", (pid, json.dumps(cleaned, sort_keys=True)))
             if changed:
-                conn.execute(
-                    "UPDATE creator_stages SET status='pending',artifact_json=NULL,error=NULL "
-                    "WHERE project_id=? AND stage='render'", (pid,))
+                _invalidate_render(conn, pid)
     return jsonify(effects=cleaned, changed=changed)
 
 
