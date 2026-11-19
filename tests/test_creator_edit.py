@@ -172,6 +172,25 @@ class CreatorEditingTests(unittest.TestCase):
         db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?", (self.pid,))
         self.assertEqual(self.client.put(endpoint, json={"assignments":{}}).status_code,409)
 
+    def test_editing_completed_video_resets_project_readiness(self):
+        db.execute("UPDATE creator_stages SET status='done' WHERE project_id=? "
+                   "AND stage IN ('narration','visuals','render')", (self.pid,))
+        db.execute("UPDATE creator_projects SET status='render_ready' WHERE id=?",
+                   (self.pid,))
+        endpoint = f"/api/creator/projects/{self.pid}/edit/scene-effects"
+        response = self.client.put(
+            endpoint, json={"effects": {"hook": {"speed": 1.5}}})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(db.query_one(
+            "SELECT status FROM creator_projects WHERE id=?", (self.pid,))["status"],
+            "narration_ready")
+        self.assertEqual(db.query_one(
+            "SELECT status FROM creator_stages WHERE project_id=? AND stage='render'",
+            (self.pid,))["status"], "pending")
+        self.assertEqual(db.query_one(
+            "SELECT status FROM creator_stages WHERE project_id=? AND stage='narration'",
+            (self.pid,))["status"], "done")
+
     def test_per_scene_effects_validate_preserve_audio_and_invalidate_render(self):
         endpoint=f"/api/creator/projects/{self.pid}/edit/scene-effects"
         empty=self.client.get(endpoint).get_json()
