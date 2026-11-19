@@ -519,3 +519,21 @@ Tests isolate Creator data in temporary folders and cover cleanup,
 active-job protection and out-of-range trim validation. These changes still
 require full automated and Windows acceptance testing.
 
+
+## Batch timeout containment (no unsafe forced cancellation)
+
+The batch coordinator waits up to 24 hours per automated project before
+entering a **paused** state. Importantly, this deadline does **not** mark a
+still-running worker complete or start the next project. It keeps the current
+batch item active until the underlying automation job reaches a terminal state.
+If a coordinator reports failure while an independent stage (rendering, images,
+stock, etc.) is still busy, the batch also pauses and waits for the stage to
+become idle before releasing the item.
+
+This prevents overlapping timed-out tasks on one local GPU. It is **not** a
+true process cancellation feature: a permanently stuck inference or FFmpeg
+process can still require an app restart, and pausing doesn't kill running work.
+Do not resume until the active item has stopped. Completed videos are retained,
+and incomplete projects can be retried using the existing batch controls.
+Automated unit tests model coordinator deadline and lingering-stage scenarios;
+real Windows tests are still needed.
