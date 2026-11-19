@@ -121,6 +121,20 @@ class CreatorWorkflowTests(unittest.TestCase):
         self.assertEqual(project["script"]["title"], EXAMPLE["title"])
         self.assertEqual(project["stages"]["script"]["status"], "done")
 
+    def test_script_queue_shutdown_preserves_finished_video_status(self):
+        pid = self.create()
+        self.client.put(f"/api/creator/projects/{pid}/script", json=EXAMPLE)
+        db.execute("UPDATE creator_projects SET status='render_ready' WHERE id=?", (pid,))
+        with patch.object(creator.llm, "status", return_value={
+                 "running": True, "installed": True, "message": "ready"}), \
+             patch.object(creator._executor, "submit",
+                          side_effect=RuntimeError("executor shut down")):
+            response = self.client.post(f"/api/creator/projects/{pid}/script/generate")
+        self.assertEqual(response.status_code, 503)
+        project = self.client.get(f"/api/creator/projects/{pid}").get_json()["project"]
+        self.assertEqual(project["status"], "render_ready")
+        self.assertEqual(project["stages"]["script"]["status"], "done")
+
     def test_script_queue_shutdown_returns_new_project_to_draft(self):
         pid = self.create()
         with patch.object(creator.llm, "status", return_value={
