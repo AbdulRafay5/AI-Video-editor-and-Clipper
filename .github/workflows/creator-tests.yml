@@ -86,9 +86,18 @@ jobs:
         run: python -m compileall -q clipper tests app.py config.py scripts
       - name: Smoke test full Windows server over localhost
         run: python scripts/smoke_startup.py
-      - name: Test Windows Creator coordination and APIs
+      - name: Install FFmpeg for Windows video integration tests
+        shell: pwsh
         run: |
-          python -m unittest discover -s tests -p "test_creator_inference.py" -v
-          python -m unittest discover -s tests -p "test_creator_api.py" -v
-          python -m unittest discover -s tests -p "test_creator_batch.py" -v
-          python -m unittest discover -s tests -p "test_creator_narration.py" -v
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or
+              -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --yes --no-progress
+          }
+          ffmpeg -version
+          ffprobe -version
+          $encoders = ffmpeg -hide_banner -encoders 2>&1
+          if (-not ($encoders -match 'libx264')) {
+            throw 'FFmpeg must include libx264 for Creator MP4 render tests'
+          }
+      - name: Run full Creator Studio regression suite on Windows (real FFmpeg)
+        run: python -m unittest discover -s tests -p "test_*.py" -v
