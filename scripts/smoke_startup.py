@@ -4,10 +4,16 @@ Run: python scripts/smoke_startup.py
 No AI requests, downloads, uploads, FFmpeg processing or external APIs.
 """
 import json
+import sys
 import threading
 import urllib.request
 from contextlib import closing
+from pathlib import Path
 from unittest.mock import patch
+
+# Direct `python scripts/smoke_startup.py` adds scripts/, not the repository
+# root, to sys.path. Resolve the root explicitly on Windows and Linux.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from werkzeug.serving import make_server
 
