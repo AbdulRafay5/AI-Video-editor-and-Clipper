@@ -92,7 +92,7 @@ class RenderBridgeTests(unittest.TestCase):
             "export": {"path": str(upstream)},
             "state": "succeeded", "stages": {}, "promoted": True}
         engine._revision_path.return_value = revision_dir
-        def finish_and_cancel(*args):
+        def finish_and_cancel(*args, **kwargs):
             # Cancellation arrives after upstream FFmpeg has finished, while
             # Creator Studio is finishing subtitles/effects.
             (revision_dir / "cancel.json").write_text('{"cancelled":true}')
