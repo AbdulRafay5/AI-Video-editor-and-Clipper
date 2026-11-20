@@ -113,7 +113,12 @@ class AutomaticCreatorTests(unittest.TestCase):
 
     def test_refuses_unapproved_missing_stock_and_reports_blocker(self):
         self._save_script()
-        result = self._start_and_run({"music": "none"})
+        # Windows may have a built-in SAPI voice; force voice unavailability
+        # to exercise the intended narration blocker on every platform.
+        with patch.object(narration.local_narration, "select_backend",
+                          side_effect=narration.local_narration.NarrationError(
+                              "No voice backend is configured.")):
+            result = self._start_and_run({"music": "none"})
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["step"], "narration")
         self.assertTrue(result["report"]["error"])
