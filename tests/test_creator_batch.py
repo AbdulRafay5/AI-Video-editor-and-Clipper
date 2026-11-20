@@ -51,6 +51,34 @@ class CreatorBatchTests(unittest.TestCase):
         self.assertEqual(self.client.get(
             f"/api/creator/batches/{data['id']}").get_json()["batch"]["id"], data["id"])
 
+    def test_create_worker_shutdown_preserves_projects_for_retry(self):
+        with patch.object(batch._executor, "submit",
+                          side_effect=RuntimeError("executor shut down")):
+            response = self.client.post("/api/creator/batches", json=self.payload)
+        self.assertEqual(response.status_code, 503, response.get_json())
+        saved = response.get_json()["batch"]
+        self.assertEqual(saved["status"], "interrupted")
+        self.assertEqual(saved["counts"]["queued"], 2)
+        self.assertEqual(len(saved["items"]), 2)
+        retried = self.client.post(f"/api/creator/batches/{saved['id']}/retry")
+        self.assertEqual(retried.status_code, 202)
+        self.assertEqual(retried.get_json()["batch"]["status"], "running")
+
+    def test_retry_worker_shutdown_preserves_queued_items(self):
+        created = self.client.post("/api/creator/batches", json=self.payload)
+        batch_id = created.get_json()["batch"]["id"]
+        db.execute("UPDATE creator_batches SET status='interrupted' WHERE id=?",
+                   (batch_id,))
+        with patch.object(batch._executor, "submit",
+                          side_effect=RuntimeError("executor shut down")):
+            failed = self.client.post(f"/api/creator/batches/{batch_id}/retry")
+        self.assertEqual(failed.status_code, 503, failed.get_json())
+        saved = failed.get_json()["batch"]
+        self.assertEqual(saved["status"], "interrupted")
+        self.assertEqual(saved["counts"]["queued"], 2)
+        resumed = self.client.post(f"/api/creator/batches/{batch_id}/retry")
+        self.assertEqual(resumed.status_code, 202, resumed.get_json())
+
     def test_rejects_invalid_topics_and_options_without_creating_projects(self):
         for change in (
             {"topics": ["only one"]},
