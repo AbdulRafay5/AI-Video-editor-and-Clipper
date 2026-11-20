@@ -420,12 +420,18 @@ def _run(pid, revision):
             "finished": finished != base,
             "final_name": finished.name if finished != base else None,
         }
-        with db.get_db() as conn:
-            conn.execute("UPDATE creator_projects SET status='render_ready', error=NULL, "
-                         "updated_at=CURRENT_TIMESTAMP WHERE id=?", (pid,))
-            conn.execute("UPDATE creator_stages SET status='done', artifact_json=?, error=NULL, "
-                         "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='render'",
-                         (json.dumps(safe), pid))
+        # The upstream renderer checks cancellations during FFmpeg assembly,
+        # but the finishing step can take more time. Serialize final promotion
+        # with cancel requests so a late cancellation cannot publish an MP4.
+        with _upload_lock:
+            if (_engine(pid)._revision_path(revision) / "cancel.json").exists():
+                raise RenderCancelled("revision cancelled during final processing")
+            with db.get_db() as conn:
+                conn.execute("UPDATE creator_projects SET status='render_ready', error=NULL, "
+                             "updated_at=CURRENT_TIMESTAMP WHERE id=?", (pid,))
+                conn.execute("UPDATE creator_stages SET status='done', artifact_json=?, error=NULL, "
+                             "updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND stage='render'",
+                             (json.dumps(safe), pid))
     except BaseException as exc:
         log.exception("Creator render failed for %s", pid)
         detail = str(exc)[:300] if isinstance(exc, (ProjectError, RenderCancelled)) else "Video rendering failed; check the local log."
@@ -543,23 +549,26 @@ def render_status(pid):
 
 @bp.post("/api/creator/projects/<int:pid>/render/cancel")
 def cancel_render(pid):
-    project = _project(pid)
-    if not project:
-        return jsonify(error="Project not found."), 404
-    if project["status"] != "rendering":
-        return jsonify(error="No active render to cancel."), 409
-    row = db.query_one("SELECT artifact_json FROM creator_stages "
-                       "WHERE project_id=? AND stage='render'", (pid,))
-    artifact = json.loads(row["artifact_json"]) if row and row["artifact_json"] else {}
-    revision = artifact.get("revision_id")
-    if not isinstance(revision, str):
-        return jsonify(error="Active revision could not be identified."), 409
-    try:
-        _engine(pid).cancel(revision)
-    except (ProjectError, OSError, ValueError):
-        return jsonify(error="Could not cancel the active render."), 500
+    # Hold the same lock as final promotion: either a cancel wins and the
+    # exported video stays unavailable, or promotion wins and cancel returns
+    # 409 because rendering has already finished.
+    with _upload_lock:
+        project = _project(pid)
+        if not project:
+            return jsonify(error="Project not found."), 404
+        if project["status"] != "rendering":
+            return jsonify(error="No active render to cancel."), 409
+        row = db.query_one("SELECT artifact_json FROM creator_stages "
+                           "WHERE project_id=? AND stage='render'", (pid,))
+        artifact = json.loads(row["artifact_json"]) if row and row["artifact_json"] else {}
+        revision = artifact.get("revision_id")
+        if not isinstance(revision, str):
+            return jsonify(error="Active revision could not be identified."), 409
+        try:
+            _engine(pid).cancel(revision)
+        except (ProjectError, OSError, ValueError):
+            return jsonify(error="Could not cancel the active render."), 500
     return jsonify(ok=True, status="cancellation_requested")
-
 
 @bp.get("/api/creator/projects/<int:pid>/render/file")
 def render_file(pid):
