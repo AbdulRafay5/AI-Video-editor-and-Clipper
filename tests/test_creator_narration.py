@@ -64,9 +64,11 @@ class NarrationTests(unittest.TestCase):
         self.assertEqual(r.status_code, 409)
 
     def test_free_engine_not_available_returns_error(self):
-        with patch.object(local_narration, "backend", return_value={
-            "name": "none", "ready": False, "voice": None,
-            "description": "Install Piper"}):
+        # Auto-selected voices differ by OS (Windows may provide SAPI).
+        # Force the selection failure itself, not one platform's fallback.
+        with patch.object(local_narration, "select_backend",
+                          side_effect=local_narration.NarrationError(
+                              "No narration voice is available.")):
             r = self.client.post(f"/api/creator/projects/{self.pid}/narration/generate")
         self.assertEqual(r.status_code, 503)
 
