@@ -78,9 +78,12 @@ See [MoneyPrinterTurbo port and limits](docs/mpt-free-port.md),
 ## Verification
 
 GitHub Actions (`.github/workflows/creator-tests.yml`) runs syntax checks,
-a Node.js frontend polling regression, and the Python regression suite with
-FFmpeg on Ubuntu. It intentionally uses offline doubles for expensive AI
-model inference and external services.
+a Node.js frontend polling regression, and the full Python/FFmpeg regression
+suite on Ubuntu. On Windows, it installs the actual core `requirements.txt`,
+checks Creator APIs and starts the **complete Flask server over localhost**,
+testing the homepage, project listing and diagnostics. This still does **not**
+test model inference, your GPU, actual voice output or live stock services;
+those require local acceptance testing.
 
 To run Python tests manually in the virtual environment:
 
@@ -90,6 +93,13 @@ To run Python tests manually in the virtual environment:
 
 With Node.js available, frontend polling tests can also be run using
 `node tests/creator_frontend_polling.test.cjs`.
+
+To reproduce the real application startup check (does not generate media):
+
+```powershell
+.\.venv\Scripts\python.exe scripts/smoke_startup.py
+```
+
 
 ### Final Windows acceptance checklist
 
