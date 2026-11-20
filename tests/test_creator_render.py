@@ -74,6 +74,53 @@ class RenderBridgeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Upload", response.get_json()["error"])
 
+    def test_late_cancel_during_finish_never_promotes_video(self):
+        from clipper import creator_finish_api
+        revision = "c" * 32
+        revision_dir = Path(self.tmp.name) / "revision"
+        revision_dir.mkdir()
+        upstream = Path(self.tmp.name) / "upstream.mp4"
+        upstream.write_bytes(b"placeholder")
+        self._add_narration()
+        db.execute("UPDATE creator_projects SET status='rendering' WHERE id=?",
+                   (self.pid,))
+        db.execute("UPDATE creator_stages SET status='running',artifact_json=? "
+                   "WHERE project_id=? AND stage='render'",
+                   (json.dumps({"revision_id": revision}), self.pid))
+        engine = unittest.mock.MagicMock()
+        engine.render.return_value = {
+            "export": {"path": str(upstream)},
+            "state": "succeeded", "stages": {}, "promoted": True}
+        engine._revision_path.return_value = revision_dir
+        def finish_and_cancel(*args):
+            # Cancellation arrives after upstream FFmpeg has finished, while
+            # Creator Studio is finishing subtitles/effects.
+            (revision_dir / "cancel.json").write_text('{"cancelled":true}')
+            return upstream
+        with patch.object(render, "_engine", return_value=engine), \
+             patch.object(creator_finish_api, "finish_project",
+                          side_effect=finish_and_cancel), \
+             patch.object(render, "_verify_export",
+                          return_value={"duration": 3, "has_audio": True}):
+            render._run(self.pid, revision)
+        project = render._project(self.pid)
+        self.assertEqual(project["status"], "narration_ready")
+        stage = self.client.get(
+            f"/api/creator/projects/{self.pid}/render").get_json()
+        self.assertEqual(stage["status"], "failed")
+        self.assertFalse(stage["ready"])
+        self.assertEqual(self.client.get(
+            f"/api/creator/projects/{self.pid}/render/file").status_code, 409)
+
+    def test_cancel_rejected_after_video_is_published(self):
+        db.execute("UPDATE creator_projects SET status='render_ready' WHERE id=?",
+                   (self.pid,))
+        with patch.object(render, "_engine") as engine:
+            response = self.client.post(
+                f"/api/creator/projects/{self.pid}/render/cancel")
+        self.assertEqual(response.status_code, 409)
+        engine.assert_not_called()
+
     def test_render_executor_shutdown_restores_project_state(self):
         revision = "a" * 32
         with patch.object(render, "_manifest", return_value={"scenes": []}), \
