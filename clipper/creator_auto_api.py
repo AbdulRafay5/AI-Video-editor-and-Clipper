@@ -412,7 +412,17 @@ def start(pid):
                          "ON CONFLICT(project_id) DO UPDATE SET status='running',step='script',"
                          "options_json=excluded.options_json,report_json='{}',updated_at=CURRENT_TIMESTAMP",
                          (pid, json.dumps(options)))
-        _executor.submit(_automate, pid, options, current_app._get_current_object())
+        try:
+            _executor.submit(_automate, pid, options, current_app._get_current_object())
+        except RuntimeError:
+            message = "Automatic production worker unavailable; restart the application."
+            with db.get_db() as conn:
+                conn.execute(
+                    "UPDATE creator_auto_jobs SET status='interrupted', "
+                    "report_json=?,updated_at=CURRENT_TIMESTAMP "
+                    "WHERE project_id=? AND status='running'",
+                    (json.dumps({"error": message}), pid))
+            return jsonify(error=message), 503
     return jsonify(ok=True, status="running", step="script"), 202
 
 
