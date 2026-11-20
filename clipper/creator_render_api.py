@@ -407,7 +407,9 @@ def _run(pid, revision):
         # separate MP4 and never touches existing clipper outputs.
         base = Path(result["export"]["path"])
         finished = creator_finish_api.finish_project(
-            pid, base, revision, _root(pid) / "finished")
+            pid, base, revision, _root(pid) / "finished",
+            cancel_requested=lambda: (
+                _engine(pid)._revision_path(revision) / "cancel.json").exists())
         # Do not promote a corrupt or unexpectedly short MP4 to review.
         narration = _narration(pid)
         expected = sum(float(part["duration"]) for part in narration["segments"])
