@@ -120,6 +120,17 @@ class AutomaticCreatorTests(unittest.TestCase):
         self.assertNotEqual(result["report"]["error"], "Production stage rejected.")
         self.assertEqual(result["report"]["completed"], ["script"])
 
+    def test_auto_coordinator_shutdown_preserves_retryable_job(self):
+        with patch.object(auto._executor, "submit",
+                          side_effect=RuntimeError("executor shut down")):
+            result = self.client.post(
+                self.endpoint + "/start", json={"visual_mode": "ai"})
+        self.assertEqual(result.status_code, 503, result.get_json())
+        job = self.client.get(self.endpoint).get_json()
+        self.assertEqual(job["status"], "interrupted")
+        self.assertIn("restart", job["report"]["error"])
+        self.assertEqual(render._project(self.pid)["status"], "draft")
+
     def test_duplicate_running_job_is_rejected(self):
         db.execute("INSERT INTO creator_auto_jobs(project_id,status,step) "
                    "VALUES (?,'running','script')", (self.pid,))
