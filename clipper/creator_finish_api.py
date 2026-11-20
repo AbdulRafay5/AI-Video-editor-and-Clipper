@@ -329,9 +329,10 @@ def finish_project(pid, base_mp4, revision, finished_root, *, cancel_requested=N
                 graph.append(f"[{prev}]" + ",".join(filters) + "[final]")
             else:
                 graph.append(f"[{prev}]null[final]")
-            script_file = folder / "filters.txt"
-            script_file.write_text(";".join(graph), encoding="utf-8")
-            cmd.extend(["-filter_complex_script", str(script_file),
+            # -filter_complex_script was removed by newer FFmpeg builds
+            # available on Windows. The bounded scene graph fits comfortably
+            # in a command argument and works with both FFmpeg generations.
+            cmd.extend(["-filter_complex", ";".join(graph),
                         "-map", "[final]", "-map", f"{len(scenes)}:a:0"])
         else:
             cmd.extend(["-i", str(Path(base_mp4).resolve()), "-vf", ",".join(filters)])
