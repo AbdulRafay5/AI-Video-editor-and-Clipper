@@ -2,7 +2,9 @@
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -51,6 +53,16 @@ class CreatorFinishTests(unittest.TestCase):
     def tearDown(self):
         self.dbpatch.stop()
         self.temp.cleanup()
+
+    def test_finishing_worker_is_terminated_on_cancellation(self):
+        # A harmless sleeping local subprocess stands in for slow FFmpeg.
+        # Cancellation must stop the process, not merely discard its MP4.
+        start = time.monotonic()
+        with self.assertRaisesRegex(finish.FinishError, "cancelled"):
+            finish._run_finishing_ffmpeg(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                Path(self.temp.name), lambda: True, timeout=10)
+        self.assertLess(time.monotonic() - start, 3)
 
     def test_caption_options_validation_and_srt(self):
         response = self.client.get(f"/api/creator/projects/{self.pid}/captions/options")
