@@ -80,10 +80,11 @@ See [MoneyPrinterTurbo port and limits](docs/mpt-free-port.md),
 GitHub Actions (`.github/workflows/creator-tests.yml`) runs syntax checks,
 a Node.js frontend polling regression, and the full Python/FFmpeg regression
 suite on Ubuntu. On Windows, it installs the actual core `requirements.txt`,
-checks Creator APIs and starts the **complete Flask server over localhost**,
-testing the homepage, project listing and diagnostics. This still does **not**
-test model inference, your GPU, actual voice output or live stock services;
-those require local acceptance testing.
+starts the **complete Flask server over localhost**, tests the homepage, project
+listing and diagnostics, then installs FFmpeg and runs the **full regression suite
+including real MP4 rendering, audio, captions and transitions**. This still does
+**not** test Ollama model inference, your GPU, actual voice output or live stock
+services; those require local acceptance testing.
 
 To run Python tests manually in the virtual environment:
 
