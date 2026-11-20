@@ -364,7 +364,7 @@ class RenderBridgeTests(unittest.TestCase):
                 render._finished_export(self.pid, original)
             engine.return_value.metadata.return_value[
                 "last_successful_export"]["revision_id"] = revision
-            self.assertEqual(render._finished_export(self.pid, original), output)
+            self.assertEqual(render._finished_export(self.pid, original), output.resolve())
             engine.return_value.metadata.return_value[
                 "last_successful_export"] = None
             with self.assertRaises(render.ProjectError):
