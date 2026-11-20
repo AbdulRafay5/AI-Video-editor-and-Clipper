@@ -189,6 +189,9 @@ class RenderBridgeTests(unittest.TestCase):
                                  headers={"Range": "bytes=0-15"})
         self.assertEqual(ranged.status_code, 206)
         self.assertEqual(ranged.data, payload[:16])
+        # Windows cannot unlink files held open by send_file responses.
+        full.close()
+        ranged.close()
         source.unlink()
         self.assertEqual(self.client.get(base + "/scene_0/preview").status_code, 404)
 
