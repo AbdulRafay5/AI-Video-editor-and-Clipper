@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
@@ -187,7 +188,40 @@ def download_srt(pid):
                      mimetype="application/x-subrip", download_name=f"creator_{pid}.srt")
 
 
-def finish_project(pid, base_mp4, revision, finished_root):
+def _run_finishing_ffmpeg(cmd, folder, cancel_requested, timeout=900):
+    """Stop FFmpeg if the render is cancelled, with bounded cleanup."""
+    deadline = time.monotonic() + timeout
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(
+            cmd, cwd=folder, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=errors, creationflags=NO_WINDOW)
+        try:
+            while True:
+                if cancel_requested():
+                    raise FinishError("Finishing cancelled by user.")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise FinishError("Local subtitle render timed out.")
+                try:
+                    process.wait(timeout=min(0.2, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if cancel_requested():
+                raise FinishError("Finishing cancelled by user.")
+            if process.returncode:
+                errors.seek(0, os.SEEK_END)
+                end = errors.tell()
+                errors.seek(max(0, end - 2048))
+                raise FinishError("Could not burn subtitles or fades: " +
+                                  errors.read().decode(errors="replace")[-250:])
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+
+
+def finish_project(pid, base_mp4, revision, finished_root, *, cancel_requested=None):
     """Return a safe derived local file path, or the untouched upstream MP4."""
     opts = settings(pid)
     if not opts["captions"] and not opts["fade_edges"] and opts["transition"] == "cut":
@@ -303,12 +337,24 @@ def finish_project(pid, base_mp4, revision, finished_root):
             cmd.extend(["-i", str(Path(base_mp4).resolve()), "-vf", ",".join(filters)])
         cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                     "-c:a", "copy", "-movflags", "+faststart", str(staging)])
-        try:
-            result = subprocess.run(cmd, cwd=folder, capture_output=True,
-                                    text=True, timeout=900, creationflags=NO_WINDOW)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise FinishError("Local subtitle render failed or timed out.") from exc
-        if result.returncode or not staging.is_file() or staging.stat().st_size < 1024:
-            raise FinishError("Could not burn subtitles or fades: " + result.stderr[-250:])
+        if cancel_requested is not None:
+            try:
+                _run_finishing_ffmpeg(cmd, folder, cancel_requested)
+            except OSError as exc:
+                raise FinishError("Local subtitle render failed to start.") from exc
+            if cancel_requested():
+                raise FinishError("Finishing cancelled by user.")
+        else:
+            try:
+                result = subprocess.run(cmd, cwd=folder, capture_output=True,
+                                        text=True, timeout=900, creationflags=NO_WINDOW)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise FinishError("Local subtitle render failed or timed out.") from exc
+            if result.returncode:
+                raise FinishError("Could not burn subtitles or fades: " + result.stderr[-250:])
+        if not staging.is_file() or staging.stat().st_size < 1024:
+            raise FinishError("Finishing did not produce a usable MP4.")
+        if cancel_requested is not None and cancel_requested():
+            raise FinishError("Finishing cancelled by user.")
         os.replace(staging, dest)
     return dest
