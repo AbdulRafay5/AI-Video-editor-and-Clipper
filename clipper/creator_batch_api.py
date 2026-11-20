@@ -191,7 +191,19 @@ def create_batch():
             conn.execute(
                 "INSERT INTO creator_batch_items(batch_id,project_id) VALUES (?,?)",
                 (batch_id, pid))
-    _executor.submit(_run, batch_id, current_app._get_current_object())
+    try:
+        _executor.submit(_run, batch_id, current_app._get_current_object())
+    except RuntimeError:
+        # Persist the new projects but let the user resume queued items once
+        # the coordinator is available again.
+        with db.get_db() as conn:
+            conn.execute(
+                "UPDATE creator_batches SET status='interrupted', "
+                "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='running'",
+                (batch_id,))
+        return jsonify(error="Batch worker unavailable; restart the application. "
+                       "Your projects were saved and can be resumed.",
+                       batch=_details(batch_id)), 503
     return jsonify(batch=_details(batch_id)), 202
 
 
@@ -252,5 +264,15 @@ def retry_batch(batch_id):
             conn.execute(
                 "UPDATE creator_batches SET status='running',updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (batch_id,))
-        _executor.submit(_run, batch_id, current_app._get_current_object())
+        try:
+            _executor.submit(_run, batch_id, current_app._get_current_object())
+        except RuntimeError:
+            with db.get_db() as conn:
+                conn.execute(
+                    "UPDATE creator_batches SET status='interrupted', "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='running'",
+                    (batch_id,))
+            return jsonify(error="Batch worker unavailable; restart the application. "
+                           "Your queued videos are preserved.",
+                           batch=_details(batch_id)), 503
     return jsonify(batch=_details(batch_id)), 202
