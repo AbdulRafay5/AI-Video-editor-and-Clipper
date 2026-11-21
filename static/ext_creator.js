@@ -59,6 +59,8 @@
   const say = s => { $("creator-message").textContent = s; };
   let selected = null;
   let polling = null;
+  // Preserve unsaved voice choices when project status polling redraws the form.
+  const narrationChoices = new Map();
   const request = async (method, path, body) => {
     const r = await fetch(path, {method, headers: body===undefined ? {} : {"Content-Type":"application/json"},
       body: body===undefined ? undefined : JSON.stringify(body)});
@@ -238,7 +240,18 @@
       voiceButton.disabled=!chosen.ready||voiceBusy;
       previewVoiceButton.disabled=!chosen.ready||voiceBusy;
     }
-    engineSelect.addEventListener("change", syncVoiceOptions);
+    function rememberVoiceChoice() {
+      narrationChoices.set(project.id, {
+        engine: engineSelect.value, voice: voiceSelect.value,
+        pace: Number(paceSelect.value)
+      });
+    }
+    engineSelect.addEventListener("change", () => {
+      syncVoiceOptions();
+      rememberVoiceChoice();
+    });
+    voiceSelect.addEventListener("change", rememberVoiceChoice);
+    paceSelect.addEventListener("change", rememberVoiceChoice);
     const previewVoiceButton=document.createElement("button");
     previewVoiceButton.type="button";
     previewVoiceButton.className="secondary";
@@ -336,8 +349,23 @@
         option.textContent = engine.name + (engine.ready ? "" : " (not configured)");
         engineSelect.append(option);
       }
-      engineSelect.value = data.default || catalog[0]?.name || "";
+      const savedChoice = narrationChoices.get(project.id);
+      const artifact = project.stages.narration?.artifact;
+      const preferredEngine = savedChoice?.engine || artifact?.engine || data.default;
+      engineSelect.value = catalog.some(e => e.name === preferredEngine)
+        ? preferredEngine : data.default || catalog[0]?.name || "";
       syncVoiceOptions();
+      const preferredVoice = savedChoice?.engine === engineSelect.value
+        ? savedChoice.voice : artifact?.engine === engineSelect.value ? artifact.voice : null;
+      if (preferredVoice && [...voiceSelect.options].some(opt => opt.value === preferredVoice))
+        voiceSelect.value = preferredVoice;
+      if (savedChoice?.engine === engineSelect.value &&
+          ["0.8", "1", "1.2"].includes(String(savedChoice.pace)) && !paceSelect.disabled)
+        paceSelect.value = String(savedChoice.pace);
+      else if (artifact?.engine === engineSelect.value && !paceSelect.disabled &&
+               ["0.8", "1", "1.2"].includes(String(artifact.pace)))
+        paceSelect.value = String(artifact.pace);
+      rememberVoiceChoice();
     }).catch(err => { if(selected===project.id) voiceInfo.textContent = err.message; });
     voiceButton.onclick = async () => {
       if(project.stages.narration?.status === "done" && !confirm("Regenerate the current narration from the saved script?")) return;
@@ -345,6 +373,7 @@
       try {
         const selection = {engine:engineSelect.value,voice:voiceSelect.value,
           pace:Number(paceSelect.value)};
+        narrationChoices.set(project.id, selection);
         await request("POST", "/api/creator/projects/" + project.id + "/narration/generate", selection);
         say("Generating narration with " + selection.engine + "...");
         openProject(project.id);
@@ -355,12 +384,17 @@
         if(selected !== project.id || !data.narration?.artifact) return;
         const artifact = data.narration.artifact;
         const note = document.createElement("p");
-        note.textContent = "Narration duration: " + Number(artifact.duration).toFixed(1)
-          + " seconds · " + artifact.segments.length + " parts";
+        note.textContent = "Narration: " + (artifact.engine || "recorded") +
+          " · " + (artifact.voice || "own recording") + " · " +
+          Number(artifact.duration).toFixed(1) + " seconds · " +
+          artifact.segments.length + " parts";
         const player = document.createElement("audio");
         player.controls = true;
         player.preload = "none";
-        player.src = "/api/creator/projects/" + project.id + "/narration/audio";
+        // Run-specific URLs prevent the browser playing cached audio from the
+        // previous voice after narration regeneration.
+        player.src = "/api/creator/projects/" + project.id +
+          "/narration/audio?run=" + encodeURIComponent(artifact.run_id);
         const download = document.createElement("a");
         download.href = player.src;
         download.textContent = "Download narration WAV";
@@ -374,7 +408,7 @@
           const audio = document.createElement("audio");
           audio.controls = true;
           audio.preload = "none";
-          audio.src = player.src + "?segment=" + index;
+          audio.src = player.src + "&segment=" + index;
           details.append(summary, audio);
           audioList.append(details);
         });
