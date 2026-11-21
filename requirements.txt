@@ -1,5 +1,8 @@
 flask>=3.0,<4
 faster-whisper>=1.1
+# PyAV 19 removes av.open(metadata_errors=...), still called by faster-whisper 1.2.1.
+# Keep the decoder compatible until a PyPI release includes the upstream fix.
+av>=11,<19
 opencv-python-headless>=4.8
 pypdf>=4.0
 python-docx>=1.1
