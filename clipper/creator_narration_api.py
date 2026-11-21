@@ -391,4 +391,8 @@ def narration_audio(pid):
     file = _root(pid) / run_id / name
     if not file.is_file():
         return jsonify(error="Narration file is missing."), 404
-    return send_file(file, mimetype="audio/wav", as_attachment=False)
+    response = send_file(file, mimetype="audio/wav", as_attachment=False, max_age=0)
+    # The same endpoint serves multiple generated voice runs. Never let a
+    # browser replay a previously cached narration when the voice changes.
+    response.headers["Cache-Control"] = "no-store"
+    return response
