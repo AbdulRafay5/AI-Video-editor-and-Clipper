@@ -114,6 +114,44 @@ class NarrationTests(unittest.TestCase):
         self.assertAlmostEqual(artifact["segments"][1]["start"],0.3,places=2)
         self.assertAlmostEqual(artifact["segments"][2]["start"],0.6,places=2)
 
+    def test_regenerate_with_different_voice_uses_new_selection(self):
+        self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
+        choices = [
+            {"name": "edge", "ready": True, "voice": "en-GB-SoniaNeural",
+             "voices": ["en-GB-SoniaNeural", "en-US-AriaNeural"],
+             "online": True, "description": "Edge"}
+        ]
+        captured = []
+        def fake_submit(fn, *args):
+            captured.append((fn, args))
+        with patch.object(local_narration, "available_backends", return_value=choices), \
+             patch.object(narration._executor, "submit", side_effect=fake_submit):
+            first = self.client.post(
+                f"/api/creator/projects/{self.pid}/narration/generate",
+                json={"engine": "edge", "voice": "en-GB-SoniaNeural", "pace": 1})
+            self.assertEqual(first.status_code, 202)
+            self.assertEqual(captured[-1][1][2]["voice"], "en-GB-SoniaNeural")
+            db.execute("UPDATE creator_projects SET status='narration_ready' WHERE id=?",
+                       (self.pid,))
+            second = self.client.post(
+                f"/api/creator/projects/{self.pid}/narration/generate",
+                json={"engine": "edge", "voice": "en-US-AriaNeural", "pace": 1})
+            self.assertEqual(second.status_code, 202)
+            self.assertEqual(captured[-1][1][2]["voice"], "en-US-AriaNeural")
+
+    def test_audio_does_not_cache_previous_narration(self):
+        self.client.put(f"/api/creator/projects/{self.pid}/script", json=SCRIPT)
+        with patch.object(local_narration, "synthesize",
+                          side_effect=lambda text, target, engine: make_wav(target)), \
+             patch.object(local_narration, "combine",
+                          side_effect=lambda wavs, target: make_wav(target, 0.8)):
+            narration._run(self.pid, SCRIPT, {"name": "edge", "voice": "voice-a"})
+        response = self.client.get(
+            f"/api/creator/projects/{self.pid}/narration/audio")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+        response.close()
+
     def test_generation_rejects_unsupported_pace_without_starting(self):
         self.client.put(f"/api/creator/projects/{self.pid}/script",json=SCRIPT)
         selected={"name":"windows-sapi","voice":"Windows default","ready":True}
