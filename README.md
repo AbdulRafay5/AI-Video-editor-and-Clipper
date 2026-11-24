@@ -241,7 +241,7 @@ The startup smoke test starts the full application and requests its main endpoin
 
 ## Credits and further guides
 
-The local revision renderer integrates MIT-licensed work from [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo). See [the bundled license](clipper/mpt_compat/LICENSE) and [compatibility notes](docs/mpt-free-port.md). Third-party AI models, voices, stock footage and services have separate licenses and usage terms.
+The local revision renderer integrates licensed work from [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo). See [the bundled license](clipper/mpt_compat/LICENSE) and [compatibility notes](docs/mpt-free-port.md). Third-party AI models, voices, stock footage and services have separate licenses and usage terms.
 
 - [Narration / Kokoro / Edge / Piper](docs/free-narration.md)
 - [Local AI images](docs/free-images.md)
