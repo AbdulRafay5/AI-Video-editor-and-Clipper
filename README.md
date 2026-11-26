@@ -251,4 +251,4 @@ The startup smoke test starts the full application and requests its main endpoin
 - [Experimental CogVideoX](docs/free-neural-video.md)
 ## Third-party notices
 
-The revision renderer includes MIT-licensed components from [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo). See the [bundled copyright and license notice](clipper/mpt_compat/LICENSE) and [component provenance notes](docs/mpt-free-port.md). Third-party AI models, voices, stock footage and services have separate licenses and usage terms.
+The Creator Studio revision renderer vendors the MIT-licensed `app/services/video_project.py` module from [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) as `clipper/mpt_compat/video_project.py`. The surrounding creator API and user interface are project-specific integration code; other upstream-derived approaches are documented in the component provenance notes. See the [bundled copyright and license notice](clipper/mpt_compat/LICENSE) and [component provenance notes](docs/mpt-free-port.md). Third-party AI models, voices, stock footage and services have separate licenses and usage terms.
