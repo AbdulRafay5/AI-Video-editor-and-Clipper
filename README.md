@@ -18,6 +18,10 @@ The app uses Python, Flask, FFmpeg and (optionally) local [Ollama](https://ollam
 8. [Troubleshooting](#troubleshooting)
 9. [Tests, privacy and limitations](#tests-privacy-and-limitations)
 
+## Architecture
+
+The application combines two workflows: Creator Studio for topic-to-video production and Clipper for editing existing recordings. A Flask backend coordinates project state, local AI inference, media sourcing, narration, caption generation and FFmpeg rendering. Optional AI engines are installed separately from the core editor.
+
 ## What is included?
 
 | Feature | Description |
@@ -237,14 +241,14 @@ The startup smoke test starts the full application and requests its main endpoin
 
 **Privacy and safety:** The app binds to `127.0.0.1` by default. Local projects, uploads, exports and logs are stored in `data/` (excluded from Git). **Back up final MP4s before deleting a Creator project** because that also deletes its associated media. Edge TTS, stock providers and first-use model downloads involve external services. Review video, narration, facts, media permissions, third-party licenses and final export quality before sharing.
 
-**Not implemented/fully verified:** social-platform auto-publishing, fully validated true AI text-to-video inference on the target GPU, a full draggable frame-accurate timeline and computer-vision-based automatic B-roll matching. The tool is **not a claim of complete feature-for-feature parity** with MoneyPrinterTurbo.
+**Not implemented/fully verified:** social-platform auto-publishing, fully validated true AI text-to-video inference on the target GPU, a full draggable frame-accurate timeline and computer-vision-based automatic B-roll matching.
 
-## Credits and further guides
-
-The local revision renderer integrates licensed work from [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo). See [the bundled license](clipper/mpt_compat/LICENSE) and [compatibility notes](docs/mpt-free-port.md). Third-party AI models, voices, stock footage and services have separate licenses and usage terms.
+## Further guides
 
 - [Narration / Kokoro / Edge / Piper](docs/free-narration.md)
 - [Local AI images](docs/free-images.md)
 - [Local MusicGen](docs/free-musicgen.md)
 - [Experimental CogVideoX](docs/free-neural-video.md)
-- [Feature coverage and MoneyPrinterTurbo compatibility](docs/mpt-free-port.md)
+## Third-party notices
+
+The revision renderer includes MIT-licensed components from [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo). See the [bundled copyright and license notice](clipper/mpt_compat/LICENSE) and [component provenance notes](docs/mpt-free-port.md). Third-party AI models, voices, stock footage and services have separate licenses and usage terms.
